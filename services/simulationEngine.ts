@@ -34,11 +34,11 @@ export const runBacktest = (
 
   // Inner join on months: months present in ALL selected assets
   const monthSets = assetIds.map((id) => new Set(allAssetData[id].map((row) => row.date)))
-  const commonMonths: string[] = [
-    ...monthSets.reduce(
-      (acc, set) => new Set([...acc].filter((m) => set.has(m))),
-    ),
-  ]
+  const commonMonths: string[] = monthSets.length > 0
+    ? [...monthSets.reduce(
+        (acc, set) => new Set([...acc].filter((m) => set.has(m))),
+      )]
+    : []
   commonMonths.sort()
 
   if (commonMonths.length === 0) {
