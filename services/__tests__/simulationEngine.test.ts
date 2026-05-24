@@ -8,16 +8,18 @@ const createBaseConfig = (): AssetConfig => ({
   contributionAmount: 1000,
   contributionIntervalMonths: 1,
   yearlyContributionMonth: 12,
-  qqqWeight: 60,
-  qldWeight: 40,
-  contributionQqqWeight: 60,
-  contributionQldWeight: 40,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 60,
+  leveragedWeight: 40,
+  contributionIndexWeight: 60,
+  contributionLeveragedWeight: 40,
   cashYieldAnnual: 0, // Set to 0 for simpler math in most tests
   leverage: {
     enabled: false,
     interestRate: 0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0,
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0,
     cashPledgeRatio: 0.95,
     maxLtv: 1, // 100%
     withdrawType: 'PERCENT',
@@ -30,8 +32,8 @@ const createBaseConfig = (): AssetConfig => ({
 
 const generateMarketData = (
   months: number,
-  qqqPrice: number = 100,
-  qldPrice: number = 100,
+  indexPrice: number = 100,
+  leveragedPrice: number = 100,
 ): MarketDataRow[] => {
   const data: MarketDataRow[] = []
   for (let i = 0; i < months; i++) {
@@ -40,10 +42,10 @@ const generateMarketData = (
     const dateStr = `${year}-${month.toString().padStart(2, '0')}-01`
     data.push({
       date: dateStr,
-      qqqClose: qqqPrice,
-      qqqLow: qqqPrice, // Use same price for simplicity in tests
-      qldClose: qldPrice,
-      qldLow: qldPrice, // Use same price for simplicity in tests
+      indexClose: indexPrice,
+      indexLow: indexPrice, // Use same price for simplicity in tests
+      leveragedClose: leveragedPrice,
+      leveragedLow: leveragedPrice, // Use same price for simplicity in tests
     })
   }
   return data
@@ -96,8 +98,8 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         withdrawValue: 1000,
         interestRate: 0,
         inflationRate: 100,
-        qqqPledgeRatio: 0.7,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.7,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         interestType: 'CAPITALIZED',
@@ -121,8 +123,8 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         withdrawValue: 10,
         interestRate: 0,
         inflationRate: 0,
-        qqqPledgeRatio: 0.7,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.7,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         interestType: 'CAPITALIZED',
@@ -146,8 +148,8 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         withdrawType: 'FIXED',
         interestRate: 0,
         inflationRate: 0,
-        qqqPledgeRatio: 0.7,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.7,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         interestType: 'CAPITALIZED',
@@ -161,15 +163,15 @@ describe('simulationEngine - Comprehensive Matrix', () => {
     it('should use COLLATERAL correctly', () => {
       const config = createBaseConfig()
       config.initialCapital = 10000
-      config.qqqWeight = 100
-      config.qldWeight = 0
+      config.indexWeight = 100
+      config.leveragedWeight = 0
       config.leverage = {
         enabled: true,
         ltvBasis: 'COLLATERAL',
         withdrawValue: 2000,
         withdrawType: 'FIXED',
-        qqqPledgeRatio: 0.5,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.5,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         interestRate: 0,
         inflationRate: 0,
@@ -178,7 +180,7 @@ describe('simulationEngine - Comprehensive Matrix', () => {
       }
       const data = generateMarketData(1)
       const result = runBacktest(data, strategyNoRebalance, config, 'Test')
-      // Val QQQ = 10000. Collateral = 5000.
+      // Val INDEX = 10000. Collateral = 5000.
       // Debt = 2000. LTV = 40%
       expect(result.history[0].ltv).toBe(40)
     })
@@ -195,8 +197,8 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         withdrawType: 'FIXED',
         interestRate: 0,
         inflationRate: 0,
-        qqqPledgeRatio: 0.7,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.7,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
@@ -218,8 +220,8 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         interestType: 'MATURITY',
         withdrawType: 'FIXED',
         withdrawValue: 1000,
-        qqqPledgeRatio: 0.7,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.7,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         inflationRate: 0,
@@ -241,8 +243,8 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         interestType: 'CAPITALIZED',
         withdrawType: 'FIXED',
         withdrawValue: 1000,
-        qqqPledgeRatio: 0.7,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.7,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         inflationRate: 0,
@@ -258,16 +260,16 @@ describe('simulationEngine - Comprehensive Matrix', () => {
       const config = createBaseConfig()
       config.initialCapital = 10000
       config.contributionAmount = 0
-      config.qqqWeight = 0
-      config.qldWeight = 0
+      config.indexWeight = 0
+      config.leveragedWeight = 0
       config.leverage = {
         enabled: true,
         interestRate: 120,
         interestType: 'MONTHLY',
         withdrawType: 'FIXED',
         withdrawValue: 1000,
-        qqqPledgeRatio: 0.7,
-        qldPledgeRatio: 0,
+        indexPledgeRatio: 0.7,
+        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         inflationRate: 0,
@@ -284,19 +286,19 @@ describe('simulationEngine - Comprehensive Matrix', () => {
     it('Yearly Rebalance', () => {
       const config = createBaseConfig()
       const data = generateMarketData(14)
-      data[1].qqqClose = 200 // Skew
+      data[1].indexClose = 200 // Skew
       const result = runBacktest(data, strategyRebalance, config, 'Test')
       const state = result.history[12]
-      const qqqVal = state.shares.QQQ * 100
-      const qldVal = state.shares.QLD * 100
-      expect(qqqVal / (qqqVal + qldVal)).toBeCloseTo(0.6, 2)
+      const indexVal = state.shares.INDEX * 100
+      const leveragedVal = state.shares.LEVERAGED * 100
+      expect(indexVal / (indexVal + leveragedVal)).toBeCloseTo(0.6, 2)
     })
 
     it('Smart Adjust', () => {
       const config = createBaseConfig()
       config.initialCapital = 10000
       const data = generateMarketData(13)
-      data[11].qldClose = 200 // Profit target
+      data[11].leveragedClose = 200 // Profit target
       const result = runBacktest(data, strategySmart, config, 'Test')
       expect(result.history[11].strategyMemory.lastAction).toMatch(/Sold Profit/)
     })

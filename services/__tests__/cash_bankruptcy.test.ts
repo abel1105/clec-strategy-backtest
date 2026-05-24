@@ -8,16 +8,18 @@ const createBaseConfig = (): AssetConfig => ({
   contributionAmount: 0,
   contributionIntervalMonths: 1,
   yearlyContributionMonth: 12,
-  qqqWeight: 0,
-  qldWeight: 0,
-  contributionQqqWeight: 0,
-  contributionQldWeight: 0,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 0,
+  leveragedWeight: 0,
+  contributionIndexWeight: 0,
+  contributionLeveragedWeight: 0,
   cashYieldAnnual: 0,
   leverage: {
     enabled: false,
     interestRate: 0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0,
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0,
     cashPledgeRatio: 0.95,
     maxLtv: 1,
     withdrawType: 'PERCENT',
@@ -33,10 +35,10 @@ const generateMarketData = (months: number): MarketDataRow[] => {
   for (let i = 0; i < months; i++) {
     data.push({
       date: `2020-${(i + 1).toString().padStart(2, '0')}-01`,
-      qqqClose: 100,
-      qqqLow: 100,
-      qldClose: 100,
-      qldLow: 100,
+      indexClose: 100,
+      indexLow: 100,
+      leveragedClose: 100,
+      leveragedLow: 100,
     })
   }
   return data
