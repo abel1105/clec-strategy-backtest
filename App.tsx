@@ -152,12 +152,15 @@ const MainApp = () => {
   const [isCalculating, setIsCalculating] = useState(false)
 
   const [dataSource, setDataSource] = useState<DataSource>(() => {
-    const saved = localStorage.getItem('app_data_source')
-    if (saved) {
-      try {
-        return JSON.parse(saved)
-      } catch {
-        // ignore
+    const selection = localStorage.getItem('app_data_source_selection')
+    if (selection === 'custom') {
+      const saved = localStorage.getItem('app_data_source_custom')
+      if (saved) {
+        try {
+          return { type: 'custom', data: JSON.parse(saved) }
+        } catch {
+          // ignore
+        }
       }
     }
     return { type: 'builtin' }
@@ -232,7 +235,10 @@ const MainApp = () => {
   }, [isSidebarOpen])
 
   useEffect(() => {
-    localStorage.setItem('app_data_source', JSON.stringify(dataSource))
+    localStorage.setItem('app_data_source_selection', dataSource.type)
+    if (dataSource.type === 'custom') {
+      localStorage.setItem('app_data_source_custom', JSON.stringify(dataSource.data))
+    }
   }, [dataSource])
 
   // Update profile asset names when data source changes
