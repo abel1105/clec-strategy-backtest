@@ -29,7 +29,7 @@ export const runBacktest = (
   // Initial empty state
   let currentState: PortfolioState = {
     date: marketData[0].date,
-    shares: { QQQ: 0, QLD: 0 },
+    shares: { INDEX: 0, LEVERAGED: 0 },
     cashBalance: 0,
     debtBalance: 0,
     accruedInterest: 0, // NEW: Track unpaid simple interest
@@ -45,8 +45,8 @@ export const runBacktest = (
   // Debt settings
   const leverage = {
     ...config.leverage,
-    qqqPledgeRatio: config.leverage?.qqqPledgeRatio ?? 0.7,
-    qldPledgeRatio: config.leverage?.qldPledgeRatio ?? 0.0,
+    indexPledgeRatio: config.leverage?.indexPledgeRatio ?? 0.7,
+    leveragedPledgeRatio: config.leverage?.leveragedPledgeRatio ?? 0.0,
     cashPledgeRatio: config.leverage?.cashPledgeRatio ?? 0.95,
     ltvBasis: config.leverage?.ltvBasis ?? 'TOTAL_ASSETS',
   }
@@ -162,31 +162,31 @@ export const runBacktest = (
     currentState = strategyFunc(currentState, dataRow, config, index)
 
     // Detect Trades
-    const qqqDiff = currentState.shares.QQQ - sharesBeforeStrat.QQQ
-    const qldDiff = currentState.shares.QLD - sharesBeforeStrat.QLD
+    const qqqDiff = currentState.shares.INDEX - sharesBeforeStrat.INDEX
+    const qldDiff = currentState.shares.LEVERAGED - sharesBeforeStrat.LEVERAGED
 
     // Estimate cost based on close price (trade execution price)
     if (Math.abs(qqqDiff) > 0.001) {
-      const cost = qqqDiff * dataRow.qqqClose
+      const cost = qqqDiff * dataRow.indexClose
       monthEvents.push({
         type: 'TRADE',
         amount: -cost,
-        description: `${qqqDiff > 0 ? 'Buy' : 'Sell'} ${Math.abs(qqqDiff).toFixed(2)} QQQ @ ${dataRow.qqqClose.toFixed(2)}`,
+        description: `${qqqDiff > 0 ? 'Buy' : 'Sell'} ${Math.abs(qqqDiff).toFixed(2)} ${config.indexName} @ ${dataRow.indexClose.toFixed(2)}`,
       })
     }
     if (Math.abs(qldDiff) > 0.001) {
-      const cost = qldDiff * dataRow.qldClose
+      const cost = qldDiff * dataRow.leveragedClose
       monthEvents.push({
         type: 'TRADE',
         amount: -cost,
-        description: `${qldDiff > 0 ? 'Buy' : 'Sell'} ${Math.abs(qldDiff).toFixed(2)} QLD @ ${dataRow.qldClose.toFixed(2)}`,
+        description: `${qldDiff > 0 ? 'Buy' : 'Sell'} ${Math.abs(qldDiff).toFixed(2)} ${config.leveragedName} @ ${dataRow.leveragedClose.toFixed(2)}`,
       })
     }
 
     // Detect DCA Deposit (Approximation: If we bought shares but cash didn't drop by full amount, or cash increased)
     // Net flow = (Cash_End - Cash_Start) + Cost_Of_Buys
     // If Net flow > 0, that's external deposit.
-    const netTradeCost = qqqDiff * dataRow.qqqClose + qldDiff * dataRow.qldClose
+    const netTradeCost = qqqDiff * dataRow.indexClose + qldDiff * dataRow.leveragedClose
     const impliedCashFlow = currentState.cashBalance - cashBeforeStrat + netTradeCost
 
     // Small epsilon for float errors
@@ -203,15 +203,15 @@ export const runBacktest = (
       const currentMonth = parseInt(dataRow.date.substring(5, 7)) - 1
 
       // Use LOW prices for conservative valuation (margin call assessment)
-      const qqqValue = currentState.shares.QQQ * dataRow.qqqLow
-      const qldValue = currentState.shares.QLD * dataRow.qldLow
+      const qqqValue = currentState.shares.INDEX * dataRow.indexLow
+      const qldValue = currentState.shares.LEVERAGED * dataRow.leveragedLow
       const cashValue = currentState.cashBalance
       const totalAssetValue = qqqValue + qldValue + cashValue
 
       const effectiveCollateral =
-        qqqValue * leverage.qqqPledgeRatio +
+        qqqValue * leverage.indexPledgeRatio +
         cashValue * leverage.cashPledgeRatio +
-        qldValue * leverage.qldPledgeRatio
+        qldValue * leverage.leveragedPledgeRatio
 
       // Withdrawal Logic: Trigger on the very first month (Index 0) OR every January
       // Previously: if (currentMonth === 0 && index > 0 && effectiveCollateral > 0)
@@ -290,8 +290,8 @@ export const runBacktest = (
     // 4. Update Net Value & Risk Metrics
     if (!isBankrupt) {
       // Use LOW prices for conservative net value calculation
-      const qqqVal = currentState.shares.QQQ * dataRow.qqqLow
-      const qldVal = currentState.shares.QLD * dataRow.qldLow
+      const qqqVal = currentState.shares.INDEX * dataRow.indexLow
+      const qldVal = currentState.shares.LEVERAGED * dataRow.leveragedLow
       const cashVal = currentState.cashBalance
 
       const assets = qqqVal + qldVal + cashVal
@@ -302,9 +302,9 @@ export const runBacktest = (
       )
 
       // Calculate Beta
-      // Beta Reference: QQQ=1, Cash=0, QLD=2.
+      // Beta Reference: index=1, Cash=0, leveraged=2.
       // We calculate weighted beta based on Equity to show effective leverage.
-      // Formula: (ValQQQ*1 + ValQLD*2 + Cash*0) / NetEquity
+      // Formula: (ValINDEX*1 + ValLEVERAGED*2 + Cash*0) / NetEquity
       if (currentState.totalValue > 0) {
         currentState.beta = (qqqVal * 1 + qldVal * 2) / currentState.totalValue
       } else {
