@@ -1,15 +1,19 @@
 import React, { useState } from 'react'
-import { SimulationResult } from '../types'
-import { MARKET_DATA } from '../constants'
+import { SimulationResult, MarketDataRow } from '../types'
 import { useTranslation } from '../services/i18n'
 import { X, FileText, PieChart } from 'lucide-react'
 
 interface FinancialReportModalProps {
   result: SimulationResult
+  marketData: MarketDataRow[]
   onClose: () => void
 }
 
-export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({ result, onClose }) => {
+export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
+  result,
+  marketData,
+  onClose,
+}) => {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'JOURNAL' | 'BALANCE'>('BALANCE')
 
@@ -68,11 +72,13 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({ resu
           {activeTab === 'BALANCE' && (
             <div className="space-y-6">
               {balanceSheetHistory.map((state) => {
-                const qqqVal =
-                  state.shares.QQQ * (MARKET_DATA.find((m) => m.date === state.date)?.qqqClose || 0)
-                const qldVal =
-                  state.shares.QLD * (MARKET_DATA.find((m) => m.date === state.date)?.qldClose || 0)
-                const totalAssets = qqqVal + qldVal + state.cashBalance
+                const indexVal =
+                  state.shares.INDEX *
+                  (marketData.find((m) => m.date === state.date)?.indexClose || 0)
+                const leveragedVal =
+                  state.shares.LEVERAGED *
+                  (marketData.find((m) => m.date === state.date)?.leveragedClose || 0)
+                const totalAssets = indexVal + leveragedVal + state.cashBalance
 
                 return (
                   <div
@@ -99,15 +105,16 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({ resu
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-slate-600">
-                              QQQ ({state.shares.QQQ.toFixed(1)} {t('shares')})
+                              {result.indexName} ({state.shares.INDEX.toFixed(1)} {t('shares')})
                             </span>
-                            <span className="font-mono font-medium">{fmt(qqqVal)}</span>
+                            <span className="font-mono font-medium">{fmt(indexVal)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-600">
-                              QLD ({state.shares.QLD.toFixed(1)} {t('shares')})
+                              {result.leveragedName} ({state.shares.LEVERAGED.toFixed(1)}{' '}
+                              {t('shares')})
                             </span>
-                            <span className="font-mono font-medium">{fmt(qldVal)}</span>
+                            <span className="font-mono font-medium">{fmt(leveragedVal)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-slate-600">{t('cash')}</span>

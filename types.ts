@@ -94,6 +94,8 @@ export interface SimulationResult {
   strategyName: string
   color: string // Added to carry profile color to charts
   isLeveraged: boolean // Flag to indicate if leverage was enabled
+  indexName: string
+  leveragedName: string
   history: PortfolioState[]
   isBankrupt: boolean
   bankruptcyDate: string | null

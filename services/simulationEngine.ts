@@ -360,6 +360,8 @@ export const runBacktest = (
     strategyName,
     color,
     isLeveraged: config.leverage.enabled,
+    indexName: config.indexName,
+    leveragedName: config.leveragedName,
     history,
     isBankrupt,
     bankruptcyDate,
