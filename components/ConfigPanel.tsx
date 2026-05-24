@@ -23,13 +23,12 @@ import {
 } from 'lucide-react'
 import { useTranslation } from '../services/i18n'
 
-interface CustomDataSource {
+interface SavedSource {
+  id: string
   name: string
   asset1Txt: string
   asset2Txt: string
 }
-
-type DataSource = { type: 'builtin' } | { type: 'custom'; data: CustomDataSource }
 
 interface ConfigPanelProps {
   profiles: Profile[]
@@ -39,8 +38,11 @@ interface ConfigPanelProps {
   hasResults: boolean
   showBenchmark: boolean
   onShowBenchmarkChange: (val: boolean) => void
-  dataSource: DataSource
-  onDataSourceChange: (ds: DataSource) => void
+  savedSources: SavedSource[]
+  activeSourceId: string | null
+  onSaveSource: (source: { name: string; asset1Txt: string; asset2Txt: string }) => void
+  onSelectSource: (sourceId: string | null) => void
+  onDeleteSource: (sourceId: string) => void
 }
 
 // High-contrast palette for distinct chart lines
@@ -94,8 +96,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   hasResults,
   showBenchmark,
   onShowBenchmarkChange,
-  dataSource,
-  onDataSourceChange,
+  savedSources,
+  activeSourceId,
+  onSaveSource,
+  onSelectSource,
+  onDeleteSource,
 }) => {
   const { t } = useTranslation()
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
@@ -982,8 +987,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           <input
             type="radio"
             name="dataSource"
-            checked={dataSource.type === 'builtin'}
-            onChange={() => onDataSourceChange({ type: 'builtin' })}
+            checked={activeSourceId === null}
+            onChange={() => onSelectSource(null)}
             className="accent-blue-600"
           />
           <div className="flex-1">
@@ -992,103 +997,105 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           </div>
         </label>
 
-        {/* Custom upload */}
-        <div
-          className={`p-3 rounded-lg border transition-colors ${dataSource.type === 'custom' ? 'bg-blue-50 border-blue-200' : 'border-slate-200'}`}
-        >
-          <label className="flex items-center gap-3 cursor-pointer">
+        {/* Saved custom sources */}
+        {savedSources.map((src) => (
+          <div
+            key={src.id}
+            className={`flex items-center gap-3 p-3 rounded-lg border transition-colors hover:bg-slate-50 ${activeSourceId === src.id ? 'bg-blue-50 border-blue-200' : 'border-slate-200'}`}
+          >
             <input
               type="radio"
               name="dataSource"
-              checked={dataSource.type === 'custom'}
-              onChange={() =>
-                onDataSourceChange({
-                  type: 'custom',
-                  data: { name: '', asset1Txt: '', asset2Txt: '' },
-                })
-              }
+              checked={activeSourceId === src.id}
+              onChange={() => onSelectSource(src.id)}
               className="accent-blue-600"
             />
-            <span className="text-sm font-medium text-slate-700">{t('customData')}</span>
-          </label>
+            <span className="flex-1 text-sm font-medium text-slate-700">{src.name}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDeleteSource(src.id)
+              }}
+              className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+              title={t('deleteProfile')}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
 
-          {dataSource.type === 'custom' && (
-            <div className="mt-3 ml-7 space-y-3 animate-in slide-in-from-top-2 duration-200">
-              {/* Name */}
-              <div>
-                <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                  {t('dataSourceName')}
-                </label>
-                <input
-                  type="text"
-                  value={dataSource.data.name}
-                  onChange={(e) =>
-                    onDataSourceChange({
-                      ...dataSource,
-                      data: { ...dataSource.data, name: e.target.value },
-                    })
-                  }
-                  placeholder="SPY/SSO"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Asset 1 (Index) */}
-              <div>
-                <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                  1x ({t('indexAsset')})
-                </label>
-                <input
-                  type="file"
-                  accept=".txt"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    const reader = new FileReader()
-                    reader.onload = (ev) => {
-                      onDataSourceChange({
-                        ...dataSource,
-                        data: { ...dataSource.data, asset1Txt: ev.target?.result as string },
-                      })
-                    }
-                    reader.readAsText(file)
-                  }}
-                  className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
-                {dataSource.data.asset1Txt && (
-                  <p className="text-xs text-green-600 mt-1">{t('fileLoaded')}</p>
-                )}
-              </div>
-
-              {/* Asset 2 (Leveraged) */}
-              <div>
-                <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                  2x ({t('leveragedAsset')})
-                </label>
-                <input
-                  type="file"
-                  accept=".txt"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (!file) return
-                    const reader = new FileReader()
-                    reader.onload = (ev) => {
-                      onDataSourceChange({
-                        ...dataSource,
-                        data: { ...dataSource.data, asset2Txt: ev.target?.result as string },
-                      })
-                    }
-                    reader.readAsText(file)
-                  }}
-                  className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                />
-                {dataSource.data.asset2Txt && (
-                  <p className="text-xs text-green-600 mt-1">{t('fileLoaded')}</p>
-                )}
-              </div>
+        {/* New custom source */}
+        <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
+          <summary className="flex items-center gap-2 p-3 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-lg select-none">
+            <Plus className="w-4 h-4" /> {t('customData')}
+          </summary>
+          <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
+            <div>
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                {t('dataSourceName')}
+              </label>
+              <input
+                id="new-source-name"
+                type="text"
+                placeholder="SPY/SSO"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-          )}
-        </div>
+            <div>
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                1x ({t('indexAsset')})
+              </label>
+              <input
+                id="new-source-file1"
+                type="file"
+                accept=".txt"
+                className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                2x ({t('leveragedAsset')})
+              </label>
+              <input
+                id="new-source-file2"
+                type="file"
+                accept=".txt"
+                className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
+            <button
+              onClick={() => {
+                const nameInput = document.getElementById('new-source-name') as HTMLInputElement
+                const file1Input = document.getElementById('new-source-file1') as HTMLInputElement
+                const file2Input = document.getElementById('new-source-file2') as HTMLInputElement
+                const file1 = file1Input?.files?.[0]
+                const file2 = file2Input?.files?.[0]
+                const name = nameInput?.value?.trim()
+                if (!name || !file1 || !file2) return
+                Promise.all([
+                  new Promise<string>((resolve) => {
+                    const r = new FileReader()
+                    r.onload = () => resolve(r.result as string)
+                    r.readAsText(file1)
+                  }),
+                  new Promise<string>((resolve) => {
+                    const r = new FileReader()
+                    r.onload = () => resolve(r.result as string)
+                    r.readAsText(file2)
+                  }),
+                ]).then(([asset1Txt, asset2Txt]) => {
+                  onSaveSource({ name, asset1Txt, asset2Txt })
+                  nameInput.value = ''
+                  file1Input.value = ''
+                  file2Input.value = ''
+                })
+              }}
+              className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+            >
+              {t('save')}
+            </button>
+          </div>
+        </details>
       </div>
 
       <div className="space-y-4">

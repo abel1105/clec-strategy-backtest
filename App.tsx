@@ -96,13 +96,14 @@ const INITIAL_PROFILES: Profile[] = [
   },
 ]
 
-interface CustomDataSource {
+interface SavedSource {
+  id: string
   name: string
   asset1Txt: string
   asset2Txt: string
 }
 
-type DataSource = { type: 'builtin' } | { type: 'custom'; data: CustomDataSource }
+type DataSource = { type: 'builtin' } | { type: 'custom'; data: SavedSource }
 
 const MainApp = () => {
   const { t, language, setLanguage } = useTranslation()
@@ -151,20 +152,20 @@ const MainApp = () => {
   })
   const [isCalculating, setIsCalculating] = useState(false)
 
-  const [dataSource, setDataSource] = useState<DataSource>(() => {
-    const selection = localStorage.getItem('app_data_source_selection')
-    if (selection === 'custom') {
-      const saved = localStorage.getItem('app_data_source_custom')
-      if (saved) {
-        try {
-          return { type: 'custom', data: JSON.parse(saved) }
-        } catch {
-          // ignore
-        }
-      }
-    }
-    return { type: 'builtin' }
+  const [savedSources, setSavedSources] = useState<SavedSource[]>(() => {
+    const saved = localStorage.getItem('app_saved_sources')
+    return saved ? JSON.parse(saved) : []
   })
+
+  const [activeSourceId, setActiveSourceId] = useState<string | null>(() => {
+    return localStorage.getItem('app_active_source_id') || null
+  })
+
+  const dataSource: DataSource = useMemo(() => {
+    if (!activeSourceId) return { type: 'builtin' }
+    const source = savedSources.find((s) => s.id === activeSourceId)
+    return source ? { type: 'custom', data: source } : { type: 'builtin' }
+  }, [activeSourceId, savedSources])
 
   const marketData = useMemo(() => {
     if (dataSource.type === 'builtin') return BUILTIN_DATA
@@ -190,6 +191,13 @@ const MainApp = () => {
     const saved = localStorage.getItem('app_sidebar_open')
     return saved !== null ? saved === 'true' : true
   })
+
+  // Migrate old localStorage keys
+  useEffect(() => {
+    for (const key of ['app_data_source', 'app_data_source_custom', 'app_data_source_selection']) {
+      if (localStorage.getItem(key)) localStorage.removeItem(key)
+    }
+  }, [])
 
   // Clear results if market data has changed (cache busting)
   useEffect(() => {
@@ -235,11 +243,16 @@ const MainApp = () => {
   }, [isSidebarOpen])
 
   useEffect(() => {
-    localStorage.setItem('app_data_source_selection', dataSource.type)
-    if (dataSource.type === 'custom') {
-      localStorage.setItem('app_data_source_custom', JSON.stringify(dataSource.data))
+    localStorage.setItem('app_saved_sources', JSON.stringify(savedSources))
+  }, [savedSources])
+
+  useEffect(() => {
+    if (activeSourceId) {
+      localStorage.setItem('app_active_source_id', activeSourceId)
+    } else {
+      localStorage.removeItem('app_active_source_id')
     }
-  }, [dataSource])
+  }, [activeSourceId])
 
   // Update profile asset names when data source changes
   useEffect(() => {
@@ -538,8 +551,18 @@ const MainApp = () => {
               hasResults={isCalculated}
               showBenchmark={showBenchmarks}
               onShowBenchmarkChange={setShowBenchmarks}
-              dataSource={dataSource}
-              onDataSourceChange={setDataSource}
+              savedSources={savedSources}
+              activeSourceId={activeSourceId}
+              onSaveSource={(src: { name: string; asset1Txt: string; asset2Txt: string }) => {
+                const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4)
+                setSavedSources((prev) => [...prev, { id, ...src }])
+                setActiveSourceId(id)
+              }}
+              onSelectSource={setActiveSourceId}
+              onDeleteSource={(id: string) => {
+                setSavedSources((prev) => prev.filter((s) => s.id !== id))
+                if (activeSourceId === id) setActiveSourceId(null)
+              }}
             />
 
             <div className="mt-8 px-2 text-xs text-slate-400 leading-relaxed hidden lg:block">
