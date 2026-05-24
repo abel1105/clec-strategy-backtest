@@ -54,10 +54,9 @@ export function aggregateToMonthly(daily: DailyPoint[]): MonthlyPoint[] {
   return result
 }
 
-export function buildMarketData(
-  asset1: MonthlyPoint[],
-  asset2: MonthlyPoint[],
-): import('../types').MarketDataRow[] {
+import { MarketDataRow } from '../types'
+
+export function buildMarketData(asset1: MonthlyPoint[], asset2: MonthlyPoint[]): MarketDataRow[] {
   const map1 = new Map(asset1.map((a) => [a.month, a]))
   const map2 = new Map(asset2.map((a) => [a.month, a]))
   const months = Array.from(new Set([...map1.keys(), ...map2.keys()])).sort()
