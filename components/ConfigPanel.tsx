@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AssetConfig, Profile, StrategyType, MarketDataRow } from '../types'
+import { AssetConfig, Profile, StrategyType, DataSource } from '../types'
 import {
   Settings,
   DollarSign,
@@ -25,12 +25,6 @@ import {
 import { useTranslation } from '../services/i18n'
 import { parseTxtFile, aggregateToMonthly, buildMarketData } from '../services/dataLoader'
 
-interface SavedSource {
-  id: string
-  name: string
-  marketData: MarketDataRow[]
-}
-
 interface ConfigPanelProps {
   profiles: Profile[]
   onProfilesChange: (profiles: Profile[] | ((prev: Profile[]) => Profile[])) => void
@@ -39,10 +33,10 @@ interface ConfigPanelProps {
   hasResults: boolean
   showBenchmark: boolean
   onShowBenchmarkChange: (val: boolean) => void
-  savedSources: SavedSource[]
-  onSaveSource: (source: SavedSource) => void
+  dataSources: DataSource[]
+  onSaveSource: (source: DataSource) => void
   onDeleteSource: (sourceId: string) => void
-  onImportData: (data: { profiles: Profile[]; savedSources: SavedSource[] }) => void
+  onImportData: (data: { profiles: Profile[]; dataSources: DataSource[] }) => void
 }
 
 // High-contrast palette for distinct chart lines
@@ -96,7 +90,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   hasResults,
   showBenchmark,
   onShowBenchmarkChange,
-  savedSources,
+  dataSources,
   onSaveSource,
   onDeleteSource,
   onImportData,
@@ -105,7 +99,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
   const [hasChanged, setHasChanged] = useState(false)
 
-  const isValidSource = (src: SavedSource) => src.marketData.length > 0
+  const isValidSource = (src: DataSource) => src.data.length > 0
 
   // Reset change tracker when starting to edit a new profile
   React.useEffect(() => {
@@ -339,9 +333,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   }
 
   const handleExport = () => {
-    const referencedIds = new Set(profiles.map((p) => p.dataSourceId).filter(Boolean))
-    const referencedSources = savedSources.filter((s) => referencedIds.has(s.id))
-    const data = JSON.stringify({ version: 1, profiles, savedSources: referencedSources }, null, 2)
+    const data = JSON.stringify({ version: 1, profiles, dataSources }, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -364,7 +356,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         } else if (raw.version === 1 && Array.isArray(raw.profiles)) {
           onImportData({
             profiles: raw.profiles,
-            savedSources: Array.isArray(raw.savedSources) ? raw.savedSources : [],
+            dataSources: Array.isArray(raw.dataSources) ? raw.dataSources : [],
           })
         } else {
           alert('Invalid profiles data')
@@ -474,7 +466,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   <p className="text-xs text-slate-400">Nasdaq 100 & 2x Leveraged ETF</p>
                 </div>
               </label>
-              {savedSources.map((src) => {
+              {dataSources.map((src) => {
                 const parts = src.name.split('/')
                 const indexName = parts[0]?.trim() || 'QQQ'
                 const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
@@ -1141,10 +1133,10 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           <Upload className="w-3.5 h-3.5" /> {t('dataSource')}
         </h3>
 
-        {savedSources.length === 0 && (
+        {dataSources.length === 0 && (
           <p className="text-xs text-slate-400 italic">{t('noDataSources') || 'No custom sources yet'}</p>
         )}
-        {savedSources.map((src) => (
+        {dataSources.map((src) => (
           <div
             key={src.id}
             className="flex items-center gap-3 p-3 rounded-lg border border-slate-200"

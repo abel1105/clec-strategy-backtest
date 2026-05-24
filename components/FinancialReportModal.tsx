@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
-import { SimulationResult, MarketDataRow } from '../types'
+import { SimulationResult, AssetDataRow } from '../types'
 import { useTranslation } from '../services/i18n'
 import { X, FileText, PieChart } from 'lucide-react'
 
 interface FinancialReportModalProps {
   result: SimulationResult
-  marketData: MarketDataRow[]
+  marketData: Record<string, AssetDataRow[]> | null
   onClose: () => void
 }
 
