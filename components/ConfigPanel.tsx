@@ -151,12 +151,20 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const newId = Math.random().toString(36).substr(2, 9)
     const nextColor = PROFILE_COLORS[profiles.length % PROFILE_COLORS.length]
 
+    const activeSource = savedSources.find((s) => s.id === activeSourceId)
+    const parts = activeSource ? activeSource.name.split('/') : []
+    const indexName = parts[0]?.trim() || 'QQQ'
+    const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
     const newProfile: Profile = {
       id: newId,
       name: `${t('profiles')} ${profiles.length + 1}`,
       color: nextColor,
       strategyType: 'NO_REBALANCE',
-      config: JSON.parse(JSON.stringify(DEFAULT_ASSET_CONFIG)), // Deep copy
+      config: {
+        ...JSON.parse(JSON.stringify(DEFAULT_ASSET_CONFIG)),
+        indexName,
+        leveragedName,
+      },
     }
 
     onProfilesChange([...profiles, newProfile])
