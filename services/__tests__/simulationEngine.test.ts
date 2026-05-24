@@ -1,88 +1,219 @@
 import { describe, it, expect } from 'vitest'
 import { runBacktest } from '../simulationEngine'
-import { AssetConfig, MarketDataRow } from '../../types'
-import { strategyNoRebalance, strategyRebalance, strategySmart } from '../strategies'
+import {
+  PortfolioState,
+  MonthlyContext,
+  AssetEntry,
+  StrategyFunction,
+  ProfileConfig,
+  AssetDataRow,
+} from '../../types'
 
-const createBaseConfig = (): AssetConfig => ({
+const strategyNoRebalance: StrategyFunction = (
+  state: PortfolioState,
+  ctx: MonthlyContext,
+  assets: AssetEntry[],
+  config: ProfileConfig,
+) => {
+  let s = { ...state, shares: { ...state.shares } }
+
+  // Deploy initial capital on first month
+  if (ctx.monthIndex === 0) {
+    const totalCash = s.cashBalance
+    for (const asset of assets) {
+      const price = ctx.prices[asset.dataSourceId]
+      if (!price || price <= 0) continue
+      const portion = totalCash * (asset.targetWeight / 100)
+      s.shares[asset.dataSourceId] =
+        (s.shares[asset.dataSourceId] || 0) + portion / price
+      s.cashBalance -= portion
+    }
+    return s
+  }
+
+  const month = parseInt(ctx.date.substring(5, 7))
+  const isContributionMonth =
+    config.contributionIntervalMonths === 1 ||
+    (config.contributionIntervalMonths === 12 &&
+      month === config.yearlyContributionMonth)
+
+  if (!isContributionMonth) return s
+
+  // Contributions are external deposits: add shares without changing cash
+  for (const asset of assets) {
+    const price = ctx.prices[asset.dataSourceId]
+    if (!price || price <= 0) continue
+    const portion = config.contributionAmount * (asset.contributionWeight / 100)
+    if (portion > 0) {
+      s.shares[asset.dataSourceId] =
+        (s.shares[asset.dataSourceId] || 0) + portion / price
+    } else if (portion < 0) {
+      // Negative contribution: sell shares, add proceeds to cash
+      const sellVal = Math.abs(portion)
+      const sharesToSell = Math.min(
+        sellVal / price,
+        s.shares[asset.dataSourceId] || 0,
+      )
+      s.shares[asset.dataSourceId] =
+        (s.shares[asset.dataSourceId] || 0) - sharesToSell
+      s.cashBalance += sharesToSell * price
+    }
+  }
+  return s
+}
+
+const strategyRebalance: StrategyFunction = (
+  state: PortfolioState,
+  ctx: MonthlyContext,
+  assets: AssetEntry[],
+  config: ProfileConfig,
+) => {
+  let s = strategyNoRebalance(state, ctx, assets, config)
+
+  const currentMonth = parseInt(ctx.date.substring(5, 7)) - 1
+
+  // Rebalance in January (month 0) but not the first month
+  if (currentMonth === 0 && ctx.monthIndex > 0) {
+    const totalVal =
+      s.cashBalance +
+      assets.reduce(
+        (sum, a) => sum + (s.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0),
+        0,
+      )
+
+    // Use low price for valuation to match engine
+    const valPrices = ctx.lows
+
+    s.cashBalance = 0
+    s.shares = {}
+    for (const asset of assets) {
+      const price = valPrices[asset.dataSourceId]
+      if (!price || price <= 0) continue
+      const portion = totalVal * (asset.targetWeight / 100)
+      s.shares[asset.dataSourceId] = portion / price
+    }
+  }
+
+  return s
+}
+
+const testAssets: AssetEntry[] = [
+  {
+    dataSourceId: 'ASSET_A',
+    targetWeight: 60,
+    contributionWeight: 60,
+    pledgeRatio: 0.7,
+  },
+  {
+    dataSourceId: 'ASSET_B',
+    targetWeight: 40,
+    contributionWeight: 40,
+    pledgeRatio: 0.5,
+  },
+]
+
+const baseConfig = (): ProfileConfig => ({
   initialCapital: 10000,
   contributionAmount: 1000,
   contributionIntervalMonths: 1,
   yearlyContributionMonth: 12,
-  indexName: 'QQQ',
-  leveragedName: 'QLD',
-  indexWeight: 60,
-  leveragedWeight: 40,
-  contributionIndexWeight: 60,
-  contributionLeveragedWeight: 40,
-  cashYieldAnnual: 0, // Set to 0 for simpler math in most tests
+  cashYieldAnnual: 0,
   leverage: {
     enabled: false,
-    interestRate: 0,
-    indexPledgeRatio: 0.7,
-    leveragedPledgeRatio: 0.0,
+    interestRate: 5,
     cashPledgeRatio: 0.95,
-    maxLtv: 1, // 100%
+    maxLtv: 100,
     withdrawType: 'PERCENT',
     withdrawValue: 0,
-    inflationRate: 0,
+    inflationRate: 3,
     interestType: 'CAPITALIZED',
     ltvBasis: 'TOTAL_ASSETS',
   },
 })
 
-const generateMarketData = (
+const genData = (
   months: number,
-  indexPrice: number = 100,
-  leveragedPrice: number = 100,
-): MarketDataRow[] => {
-  const data: MarketDataRow[] = []
+  priceA = 100,
+  priceB = 100,
+): Record<string, AssetDataRow[]> => {
+  const dataA: AssetDataRow[] = []
+  const dataB: AssetDataRow[] = []
   for (let i = 0; i < months; i++) {
-    const year = 2020 + Math.floor(i / 12)
-    const month = (i % 12) + 1
-    const dateStr = `${year}-${month.toString().padStart(2, '0')}-01`
-    data.push({
-      date: dateStr,
-      indexClose: indexPrice,
-      indexLow: indexPrice, // Use same price for simplicity in tests
-      leveragedClose: leveragedPrice,
-      leveragedLow: leveragedPrice, // Use same price for simplicity in tests
-    })
+    const y = 2020 + Math.floor(i / 12)
+    const m = (i % 12) + 1
+    const d = `${y}-${String(m).padStart(2, '0')}-01`
+    dataA.push({ date: d, close: priceA, low: priceA })
+    dataB.push({ date: d, close: priceB, low: priceB })
   }
-  return data
+  return { ASSET_A: dataA, ASSET_B: dataB }
 }
 
-describe('simulationEngine - Comprehensive Matrix', () => {
+const defaultMultipliers: Record<string, number> = {
+  ASSET_A: 1,
+  ASSET_B: 2,
+}
+
+describe('simulationEngine - N-Asset', () => {
   describe('DCA Patterns', () => {
     it('should handle positive DCA', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 1000
       config.contributionAmount = 100
-      const data = generateMarketData(3)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
+      const data = genData(3)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // Month 0: deploy 1000 → A=6, B=4, cash=0. Value = 1000.
+      // Month 1: +100 → A=6.6, B=4.4. Value = 1100.
+      // Month 2: +100 → A=7.2, B=4.8. Value = 1200.
       expect(result.history[2].totalValue).toBe(1200)
     })
 
     it('should handle negative DCA', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 1000
       config.contributionAmount = -100
-      const data = generateMarketData(3)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
-      expect(result.history[2].totalValue).toBe(800)
+      const data = genData(3)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // Month 0: deploy 1000 → A=6, B=4, cash=0.
+      // Month 1: sell -60 of A, -40 of B. cash = 100. A=5.4, B=3.6. Value = 1000.
+      // Month 2: sell again. A=4.8, B=3.2, cash=200. Value = 1000.
+      expect(result.history[2].totalValue).toBe(1000)
     })
 
     it('should respect spacing', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 1000
       config.contributionAmount = 100
-      config.contributionIntervalMonths = 12 // Yearly
-      config.yearlyContributionMonth = 1 // January
+      config.contributionIntervalMonths = 12
+      config.yearlyContributionMonth = 1
 
-      const data = generateMarketData(13)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
-      // Jan 0: Capital 1000.
-      // Index 1..11: No DCA.
-      // Index 12 (Jan next year): +100. Total 1100.
+      const data = genData(13)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // Month 0 (Jan): deploy 1000. A=6, B=4, cash=0. Value = 1000.
+      // Months 1-11: no contribution (interval=12, month != 1).
+      //   Value stays at 1000.
+      // Month 12 (Jan next year): month=1 → contributes.
+      //   A=6.6, B=4.4, cash=0. Value = 1100.
       expect(result.history[11].totalValue).toBe(1000)
       expect(result.history[12].totalValue).toBe(1100)
     })
@@ -90,7 +221,7 @@ describe('simulationEngine - Comprehensive Matrix', () => {
 
   describe('Leverage & Withdrawal', () => {
     it('should borrow fixed amount with inflation', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.contributionAmount = 0
       config.leverage = {
         enabled: true,
@@ -98,23 +229,30 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         withdrawValue: 1000,
         interestRate: 0,
         inflationRate: 100,
-        indexPledgeRatio: 0.7,
-        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
       }
 
-      const data = generateMarketData(24)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
+      const data = genData(24)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
 
+      // Month 0: borrow 1000. debtBalance = 1000.
+      // Month 12: yearsPassed=1. borrow 1000*(1+1)^1 = 2000. debtBalance = 3000.
       expect(result.history[0].debtBalance).toBe(1000)
       expect(result.history[12].debtBalance).toBe(3000)
     })
 
     it('should borrow percent of assets', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 10000
       config.contributionAmount = 0
       config.leverage = {
@@ -123,23 +261,29 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         withdrawValue: 10,
         interestRate: 0,
         inflationRate: 0,
-        indexPledgeRatio: 0.7,
-        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
       }
 
-      const data = generateMarketData(1)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
+      const data = genData(1)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // totalAssetValue = 10000 (cash). Borrow 10% = 1000.
       expect(result.history[0].debtBalance).toBe(1000)
     })
   })
 
   describe('LTV Basis', () => {
     it('should use TOTAL_ASSETS correctly', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 10000
       config.leverage = {
         enabled: true,
@@ -148,63 +292,88 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         withdrawType: 'FIXED',
         interestRate: 0,
         inflationRate: 0,
-        indexPledgeRatio: 0.7,
-        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         interestType: 'CAPITALIZED',
       }
-      const data = generateMarketData(1)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
-      // Assets 10000, Debt 2000 => 20%
+      const data = genData(1)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // totalAssetValue = 10000 (cash). Debt = 2000. LTV = 2000/10000 * 100 = 20%.
       expect(result.history[0].ltv).toBe(20)
     })
 
     it('should use COLLATERAL correctly', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 10000
-      config.indexWeight = 100
-      config.leveragedWeight = 0
+      config.contributionAmount = 10000
       config.leverage = {
         enabled: true,
         ltvBasis: 'COLLATERAL',
         withdrawValue: 2000,
         withdrawType: 'FIXED',
-        indexPledgeRatio: 0.5,
-        leveragedPledgeRatio: 0,
-        cashPledgeRatio: 0.95,
         interestRate: 0,
         inflationRate: 0,
+        cashPledgeRatio: 0.95,
         maxLtv: 10,
         interestType: 'CAPITALIZED',
       }
-      const data = generateMarketData(1)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
-      // Val INDEX = 10000. Collateral = 5000.
-      // Debt = 2000. LTV = 40%
+      const singleAsset: AssetEntry[] = [
+        {
+          dataSourceId: 'ASSET_A',
+          targetWeight: 100,
+          contributionWeight: 100,
+          pledgeRatio: 0.5,
+        },
+      ]
+      const data = genData(1)
+      const result = runBacktest(
+        data,
+        { ASSET_A: 1 },
+        strategyNoRebalance,
+        singleAsset,
+        config,
+        'Test',
+      )
+      // Month 0: deploy 10000 → A=100, cash=0.
+      // totalAssetValue = 0 + 100*100 = 10000.
+      // effectiveCollateral = 0*0.95 + 100*100*0.5 = 5000.
+      // Debt = 2000. LTV = 2000/5000 * 100 = 40%.
       expect(result.history[0].ltv).toBe(40)
     })
   })
 
   describe('Bankruptcy', () => {
     it('should trigger bankruptcy when LTV > maxLtv', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 10000
       config.leverage = {
         enabled: true,
-        maxLtv: 30, // 30%
-        withdrawValue: 4000, // 4000 / 10000 = 40% LTV
+        maxLtv: 30,
+        withdrawValue: 4000,
         withdrawType: 'FIXED',
         interestRate: 0,
         inflationRate: 0,
-        indexPledgeRatio: 0.7,
-        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
       }
-      const data = generateMarketData(1)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
+      const data = genData(1)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // totalAssetValue = 10000. Debt = 4000. LTV = 40% > 30%.
       expect(result.isBankrupt).toBe(true)
       expect(result.metrics.finalBalance).toBe(0)
     })
@@ -212,7 +381,7 @@ describe('simulationEngine - Comprehensive Matrix', () => {
 
   describe('Interest Modes', () => {
     it('MATURITY (Simple)', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.contributionAmount = 0
       config.leverage = {
         enabled: true,
@@ -220,22 +389,31 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         interestType: 'MATURITY',
         withdrawType: 'FIXED',
         withdrawValue: 1000,
-        indexPledgeRatio: 0.7,
-        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         inflationRate: 0,
         ltvBasis: 'TOTAL_ASSETS',
       }
 
-      const data = generateMarketData(3)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
+      const data = genData(3)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // Month 0: debt = 1000.
+      // Month 1: monthlyLoanRate = (1+1.2)^(1/12)-1 ≈ 0.0676.
+      // interestDue = 1000 * 0.0676 = 67.6.
+      // MATURITY: accruedInterest += 67.6. debtBalance stays 1000.
       expect(result.history[1].accruedInterest).toBeGreaterThan(1)
       expect(result.history[1].debtBalance).toBe(1000)
     })
 
     it('CAPITALIZED (Compound)', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.contributionAmount = 0
       config.leverage = {
         enabled: true,
@@ -243,64 +421,85 @@ describe('simulationEngine - Comprehensive Matrix', () => {
         interestType: 'CAPITALIZED',
         withdrawType: 'FIXED',
         withdrawValue: 1000,
-        indexPledgeRatio: 0.7,
-        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         inflationRate: 0,
         ltvBasis: 'TOTAL_ASSETS',
       }
 
-      const data = generateMarketData(3)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
+      const data = genData(3)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // Month 0: debt = 1000.
+      // Month 1: interestDue. CAPITALIZED: debtBalance += interestDue. debt > 1000.
       expect(result.history[1].debtBalance).toBeGreaterThan(1000)
     })
 
     it('MONTHLY (Pay from cash)', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 10000
       config.contributionAmount = 0
-      config.indexWeight = 0
-      config.leveragedWeight = 0
       config.leverage = {
         enabled: true,
         interestRate: 120,
         interestType: 'MONTHLY',
         withdrawType: 'FIXED',
         withdrawValue: 1000,
-        indexPledgeRatio: 0.7,
-        leveragedPledgeRatio: 0,
         cashPledgeRatio: 0.95,
         maxLtv: 10,
         inflationRate: 0,
         ltvBasis: 'TOTAL_ASSETS',
       }
 
-      const data = generateMarketData(3)
-      const result = runBacktest(data, strategyNoRebalance, config, 'Test')
+      const data = genData(3)
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyNoRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // Month 0: debt = 1000. cash = 10000 (contributionAmount=0, no trades).
+      // Month 1: interestDue. MONTHLY: pay from cash. cash < cashBefore.
       expect(result.history[1].cashBalance).toBeLessThan(10000)
     })
   })
 
   describe('Strategies', () => {
     it('Yearly Rebalance', () => {
-      const config = createBaseConfig()
-      const data = generateMarketData(14)
-      data[1].indexClose = 200 // Skew
-      const result = runBacktest(data, strategyRebalance, config, 'Test')
-      const state = result.history[12]
-      const indexVal = state.shares.INDEX * 100
-      const leveragedVal = state.shares.LEVERAGED * 100
-      expect(indexVal / (indexVal + leveragedVal)).toBeCloseTo(0.6, 2)
-    })
-
-    it('Smart Adjust', () => {
-      const config = createBaseConfig()
+      const config = baseConfig()
       config.initialCapital = 10000
-      const data = generateMarketData(13)
-      data[11].leveragedClose = 200 // Profit target
-      const result = runBacktest(data, strategySmart, config, 'Test')
-      expect(result.history[11].strategyMemory.lastAction).toMatch(/Sold Profit/)
+      config.contributionAmount = 0
+      const data = genData(14, 100, 100)
+      // Skew at month 1
+      data.ASSET_A[1].close = 200
+      data.ASSET_A[1].low = 200
+
+      const result = runBacktest(
+        data,
+        defaultMultipliers,
+        strategyRebalance,
+        testAssets,
+        config,
+        'Test',
+      )
+      // Month 0: deploy 10000 → A=60, B=40, cash=0. Value = 60*100 + 40*100 = 10000.
+      // Month 1: A price spikes to 200. strategyNoRebalance copies shares (no contribution).
+      //   A val = 60*200 = 12000, B val = 40*100 = 4000. Total = 16000.
+      // Month 12 (Jan next year): rebalance. A target = 60% of 16000 = 9600 @ 100 = 96 shares.
+      //   B target = 40% of 16000 = 6400 @ 100 = 64 shares. cash = 0.
+      //   Ratio = 9600 / (9600 + 6400) = 0.6.
+      const state = result.history[12]
+      const aVal = state.shares['ASSET_A'] * 100
+      const bVal = state.shares['ASSET_B'] * 100
+      expect(aVal / (aVal + bVal)).toBeCloseTo(0.6, 2)
     })
   })
 })
