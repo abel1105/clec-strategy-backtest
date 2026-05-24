@@ -106,11 +106,37 @@ type DataSource = { type: 'builtin' } | { type: 'custom'; data: CustomDataSource
 
 const MainApp = () => {
   const { t, language, setLanguage } = useTranslation()
+  const migrateProfiles = (profiles: Profile[]): Profile[] => {
+    return profiles.map((p) => {
+      const c = p.config
+      const needsMigrate = 'qqqWeight' in c
+      if (!needsMigrate) return p
+      return {
+        ...p,
+        config: {
+          ...c,
+          indexName: 'QQQ',
+          leveragedName: 'QLD',
+          indexWeight: (c as Record<string, unknown>).qqqWeight as number,
+          leveragedWeight: (c as Record<string, unknown>).qldWeight as number,
+          contributionIndexWeight: (c as Record<string, unknown>).contributionQqqWeight as number,
+          contributionLeveragedWeight: (c as Record<string, unknown>)
+            .contributionQldWeight as number,
+          leverage: {
+            ...c.leverage,
+            indexPledgeRatio: (c.leverage as Record<string, unknown>).qqqPledgeRatio as number,
+            leveragedPledgeRatio: (c.leverage as Record<string, unknown>).qldPledgeRatio as number,
+          },
+        },
+      }
+    })
+  }
+
   const [profiles, setProfiles] = useState<Profile[]>(() => {
     const saved = localStorage.getItem('app_profiles')
     if (saved) {
       try {
-        return JSON.parse(saved)
+        return migrateProfiles(JSON.parse(saved))
       } catch (e) {
         console.error('Failed to parse saved profiles:', e)
       }
