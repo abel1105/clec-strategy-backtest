@@ -166,9 +166,14 @@ const MainApp = () => {
   const marketData = useMemo(() => {
     if (dataSource.type === 'builtin') return BUILTIN_DATA
     const { asset1Txt, asset2Txt } = dataSource.data
-    const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
-    const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
-    return buildMarketData(a1, a2)
+    if (!asset1Txt || !asset2Txt) return BUILTIN_DATA
+    try {
+      const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
+      const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
+      return buildMarketData(a1, a2)
+    } catch {
+      return BUILTIN_DATA
+    }
   }, [dataSource])
 
   // Reporting Modal State
@@ -228,6 +233,29 @@ const MainApp = () => {
 
   useEffect(() => {
     localStorage.setItem('app_data_source', JSON.stringify(dataSource))
+  }, [dataSource])
+
+  // Update profile asset names when data source changes
+  useEffect(() => {
+    if (dataSource.type === 'builtin') {
+      setProfiles((prev) =>
+        prev.map((p) => ({
+          ...p,
+          config: { ...p.config, indexName: 'QQQ', leveragedName: 'QLD' },
+        })),
+      )
+    } else if (dataSource.data.name) {
+      const name = dataSource.data.name
+      const parts = name.split('/')
+      const indexName = parts[0]?.trim() || 'Index'
+      const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'Leveraged'
+      setProfiles((prev) =>
+        prev.map((p) => ({
+          ...p,
+          config: { ...p.config, indexName, leveragedName },
+        })),
+      )
+    }
   }, [dataSource])
 
   useEffect(() => {
