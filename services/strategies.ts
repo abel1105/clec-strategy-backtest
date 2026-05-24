@@ -1,4 +1,4 @@
-import { PortfolioState, MonthlyContext, AssetEntry, StrategyFunction, ProfileConfig, StrategyType } from '../types'
+import { PortfolioState, StrategyFunction, ProfileConfig, StrategyType } from '../types'
 
 interface CashAdequacyResult {
   isAdequate: boolean
@@ -26,18 +26,6 @@ export const strategyNoRebalance: StrategyFunction = (state, ctx, assets, config
   const nextState = { ...state, shares: { ...state.shares }, date: ctx.date }
   const currentMonth = parseInt(ctx.date.substring(5, 7))
 
-  if (ctx.monthIndex === 0) {
-    nextState.cashBalance = config.initialCapital
-    for (const asset of assets) {
-      const price = ctx.prices[asset.dataSourceId]
-      if (!price || price <= 0) continue
-      const amount = config.initialCapital * (asset.targetWeight / 100)
-      nextState.shares[asset.dataSourceId] = (nextState.shares[asset.dataSourceId] || 0) + amount / price
-      nextState.cashBalance -= amount
-    }
-    return nextState
-  }
-
   let isContributionMonth = false
   if (config.contributionIntervalMonths === 12) {
     isContributionMonth = currentMonth === (config.yearlyContributionMonth || 12)
@@ -45,14 +33,32 @@ export const strategyNoRebalance: StrategyFunction = (state, ctx, assets, config
     isContributionMonth = ctx.monthIndex % config.contributionIntervalMonths === 0
   }
 
-  if (isContributionMonth) {
+  if (ctx.monthIndex === 0) {
+    nextState.cashBalance = config.initialCapital
+    const totalTarget = assets.reduce((s, a) => s + a.targetWeight, 0)
     for (const asset of assets) {
       const price = ctx.prices[asset.dataSourceId]
       if (!price || price <= 0) continue
-      const portion = config.contributionAmount * (asset.contributionWeight / 100)
-      if (portion > 0) {
-        nextState.shares[asset.dataSourceId] = (nextState.shares[asset.dataSourceId] || 0) + portion / price
+      const amount = totalTarget > 0 ? config.initialCapital * (asset.targetWeight / totalTarget) : 0
+      nextState.shares[asset.dataSourceId] = (nextState.shares[asset.dataSourceId] || 0) + amount / price
+      nextState.cashBalance -= amount
+    }
+    return nextState
+  }
+
+  if (isContributionMonth) {
+    const cashChange = config.contributionAmount
+    if (cashChange > 0) {
+      for (const asset of assets) {
+        const price = ctx.prices[asset.dataSourceId]
+        if (!price || price <= 0) continue
+        const portion = cashChange * (asset.contributionWeight / 100)
+        if (portion > 0) {
+          nextState.shares[asset.dataSourceId] = (nextState.shares[asset.dataSourceId] || 0) + portion / price
+        }
       }
+    } else if (cashChange < 0) {
+      nextState.cashBalance += cashChange
     }
   }
 

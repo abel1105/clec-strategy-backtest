@@ -359,9 +359,9 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results }) =
     results.forEach((res) => {
       let peak = -Infinity
       res.history.forEach((h, idx) => {
+        if (!data[idx]) return
         if (h.totalValue > peak) peak = h.totalValue
         const dd = peak === 0 ? 0 : ((h.totalValue - peak) / peak) * 100
-        // Clamp to -100% as you cannot lose more than 100% of peak
         ;(data[idx] as Record<string, string | number>)[res.strategyName] = Math.max(-100, dd)
       })
     })
@@ -375,6 +375,7 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results }) =
     const data = results[0].history.map((h) => ({ date: h.date }))
     leveragedProfiles.forEach((res) => {
       res.history.forEach((h, idx) => {
+        if (!data[idx]) return
         ;(data[idx] as Record<string, string | number>)[res.strategyName] = h.ltv
       })
     })
@@ -387,6 +388,7 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results }) =
     const data = results[0].history.map((h) => ({ date: h.date }))
     results.forEach((res) => {
       res.history.forEach((h, idx) => {
+        if (!data[idx]) return
         ;(data[idx] as Record<string, string | number>)[res.strategyName] = h.beta
       })
     })

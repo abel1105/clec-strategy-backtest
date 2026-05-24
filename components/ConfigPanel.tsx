@@ -640,27 +640,68 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             {profile.assets.map((asset, i) => {
               const source = dataSources.find((s) => s.id === asset.dataSourceId)
               return (
-                <div key={asset.dataSourceId} className="border rounded p-3 space-y-2">
+                <div key={asset.dataSourceId} className="border rounded p-3 space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="font-medium text-sm">{source?.name || asset.dataSourceId}</span>
-                    <span className="text-xs text-gray-500">{source?.multiplier}x</span>
-                    <button onClick={() => removeAsset(i)} className="text-red-500 text-xs">Remove</button>
+                    <span className="font-medium text-sm">
+                      {source?.name || asset.dataSourceId}
+                      <span className="text-xs text-gray-400 ml-1">{source?.multiplier}x</span>
+                    </span>
+                    <button
+                      onClick={() => removeAsset(i)}
+                      className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                      title={t('removeAsset')}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <div>
-                    <label className="text-xs text-gray-600">{t('targetWeight') || 'Target Weight'}: {asset.targetWeight}%</label>
-                    <input type="range" min={0} max={100} value={asset.targetWeight}
-                      onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) })} className="w-full" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600">{t('contributionWeight') || 'Contribution Weight'}: {asset.contributionWeight}%</label>
-                    <input type="range" min={0} max={100} value={asset.contributionWeight}
-                      onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) })} className="w-full" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600">{t('pledgeRatio') || 'Pledge Ratio'}: {(asset.pledgeRatio * 100).toFixed(0)}%</label>
-                    <input type="range" min={0} max={100} value={asset.pledgeRatio * 100}
-                      onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 })} className="w-full" />
-                  </div>
+                   <div>
+                     <div className="flex justify-between items-center mb-1">
+                       <span className="text-gray-600">{t('targetWeight') || 'Target Weight'}</span>
+                       <input
+                         type="number"
+                         min={0}
+                         max={100}
+                         value={asset.targetWeight}
+                         onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) || 0 })}
+                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       />
+                     </div>
+                     <input type="range" min={0} max={100} value={asset.targetWeight}
+                       onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) })}
+                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                   </div>
+                   <div>
+                     <div className="flex justify-between items-center mb-1">
+                       <span className="text-gray-600">{t('contributionWeight') || 'Contribution Weight'}</span>
+                       <input
+                         type="number"
+                         min={0}
+                         max={100}
+                         value={asset.contributionWeight}
+                         onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) || 0 })}
+                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       />
+                     </div>
+                     <input type="range" min={0} max={100} value={asset.contributionWeight}
+                       onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) })}
+                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                   </div>
+                   <div>
+                     <div className="flex justify-between items-center mb-1">
+                       <span className="text-gray-600">{t('pledgeRatio') || 'Pledge Ratio'}</span>
+                       <input
+                         type="number"
+                         min={0}
+                         max={100}
+                         value={(asset.pledgeRatio * 100).toFixed(0)}
+                         onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 || 0 })}
+                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                       />
+                     </div>
+                     <input type="range" min={0} max={100} value={asset.pledgeRatio * 100}
+                       onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 })}
+                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-yellow-600" />
+                   </div>
                 </div>
               )
             })}
@@ -670,7 +711,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               <select
                 value=""
                 onChange={(e) => { if (e.target.value) addAsset(e.target.value) }}
-                className="flex-1 border rounded p-1 text-sm"
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">+ {t('addAsset') || 'Add Asset'}</option>
                 {dataSources
@@ -682,9 +723,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             </div>
 
             {/* Cash display */}
-            <div className="text-xs text-gray-500">
-              {t('cashAllocation') || 'Cash allocation'}: {Math.max(0, 100 - profile.assets.reduce((s, a) => s + a.targetWeight, 0))}%
-              ({t('remainderAfterWeights') || 'remainder after target weights'})
+            <div className="flex justify-between text-xs text-slate-400 pt-1 border-t border-slate-100">
+              <span>{t('cash')}</span>
+              <span className="font-bold">{Math.max(0, 100 - profile.assets.reduce((s, a) => s + a.targetWeight, 0))}%</span>
             </div>
           </div>
 
@@ -923,7 +964,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         </h3>
 
         {dataSources.filter((ds) => !ds.id.startsWith('builtin-')).length === 0 && (
-          <p className="text-xs text-slate-400 italic">{t('noDataSources') || 'No custom sources yet'}</p>
+          <p className="text-xs text-slate-400 italic">{t('noDataSources')}</p>
         )}
         {dataSources.filter((ds) => !ds.id.startsWith('builtin-')).map((ds) => (
           <div
@@ -937,9 +978,10 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             </div>
             <button
               onClick={() => onDeleteSource(ds.id)}
-              className="text-red-500 text-xs hover:text-red-700"
+              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+              title={t('deleteProfile')}
             >
-              {t('deleteProfile') || 'Delete'}
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         ))}
@@ -947,38 +989,38 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         {/* Add New Data Source */}
         <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
           <summary className="flex items-center gap-2 p-3 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-lg select-none">
-            <Plus className="w-4 h-4" /> {t('addDataSource') || 'Add New Data Source'}
+            <Plus className="w-4 h-4" /> {t('addDataSource')}
           </summary>
           <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
             <input
               type="text"
-              placeholder={t('dataSourceNamePlaceholder') || 'Asset name (e.g. SPY)'}
+              placeholder={t('dataSourceNamePlaceholder')}
               value={newSourceName}
               onChange={(e) => setNewSourceName(e.target.value)}
-              className="w-full border rounded p-1 text-sm"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <input
               type="number"
-              placeholder={t('multiplierPlaceholder') || 'Multiplier (1, 2, 3...)'}
+              placeholder={t('multiplierPlaceholder')}
               min={1}
               step={1}
               value={newSourceMultiplier}
               onChange={(e) => setNewSourceMultiplier(Number(e.target.value))}
-              className="w-full border rounded p-1 text-sm"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <input
               type="file"
               accept=".txt"
               onChange={handleFileUpload}
-              className="text-sm"
+              className="text-sm text-slate-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
             />
-            <p className="text-[10px] text-slate-400">Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by a space</p>
+            <p className="text-[10px] text-slate-400">{t('fileFormatHint')}</p>
             <button
               onClick={handleSaveSource}
               disabled={!newSourceName || newSourceMultiplier < 1 || !fileContent}
-              className="bg-blue-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+              className="w-full py-2 bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {t('save')}
+              <Upload className="w-4 h-4" /> {t('saveSource')}
             </button>
           </div>
         </details>

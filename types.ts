@@ -48,16 +48,7 @@ export interface Profile {
   color: string
   strategyType: StrategyType
   assets: AssetEntry[]
-  config: {
-    initialCapital: number
-    contributionAmount: number
-    contributionIntervalMonths: number
-    yearlyContributionMonth: number
-    cashYieldAnnual: number
-    annualExpenseAmount?: number
-    cashCoverageYears?: number
-    leverage: LeverageConfig
-  }
+  config: ProfileConfig
 }
 
 export interface FinancialEvent {
@@ -70,8 +61,8 @@ export interface PortfolioState {
   date: string
   shares: Record<string, number>
   cashBalance: number
-  debtBalance: number // New: Track margin loan balance
-  accruedInterest: number // New: Simple interest accrued but not yet paid (for MATURITY mode)
+  debtBalance: number // Margin loan balance
+  accruedInterest: number // Simple interest accrued but not yet paid (for MATURITY mode)
   totalValue: number // Net Equity (Assets - Debt)
 
   // Metadata for complex strategies (e.g., Smart Adjust)
@@ -79,7 +70,7 @@ export interface PortfolioState {
   ltv: number // Loan to Value ratio for this step
   beta: number // Portfolio Beta relative to the index (1x asset)
 
-  // New: Detailed logs for accounting reports
+  // Detailed logs for accounting reports
   events: FinancialEvent[]
 }
 

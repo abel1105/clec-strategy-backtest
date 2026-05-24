@@ -9,6 +9,11 @@ interface FinancialReportModalProps {
   onClose: () => void
 }
 
+const fmt = (num: number) =>
+  `$${num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+const fmtDec = (num: number) =>
+  `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
 export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
   result,
   marketData,
@@ -17,22 +22,21 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'JOURNAL' | 'BALANCE'>('BALANCE')
 
-  // Helper to format currency
-  const fmt = (num: number) =>
-    `$${num.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-  const fmtDec = (num: number) =>
-    `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-
-  // Filter history for Balance Sheet (Every 6 months: June & Dec)
   const balanceSheetHistory = result.history.filter((_, idx) => {
     const month = parseInt(result.history[idx].date.substring(5, 7))
     return month === 6 || month === 12 || idx === result.history.length - 1
   })
 
+  const getAssetValue = (state: typeof result.history[0], assetId: string): number => {
+    const shares = state.shares[assetId] || 0
+    if (!marketData || !marketData[assetId]) return 0
+    const row = marketData[assetId].find((m) => m.date === state.date)
+    return shares * (row?.close || 0)
+  }
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-        {/* Header */}
         <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
           <div className="flex items-center gap-3">
             <span className="w-4 h-4 rounded-full" style={{ backgroundColor: result.color }}></span>
@@ -51,7 +55,6 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
           </button>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-slate-200">
           <button
             onClick={() => setActiveTab('BALANCE')}
@@ -67,18 +70,15 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
           </button>
         </div>
 
-        {/* Content Area */}
         <div className="flex-1 overflow-auto bg-slate-50 p-4">
           {activeTab === 'BALANCE' && (
             <div className="space-y-6">
               {balanceSheetHistory.map((state) => {
-                const indexVal =
-                  state.shares.INDEX *
-                  (marketData.find((m) => m.date === state.date)?.indexClose || 0)
-                const leveragedVal =
-                  state.shares.LEVERAGED *
-                  (marketData.find((m) => m.date === state.date)?.leveragedClose || 0)
-                const totalAssets = indexVal + leveragedVal + state.cashBalance
+                const assetValues = result.assetNames.map((id) => ({
+                  id,
+                  value: getAssetValue(state, id),
+                }))
+                const totalAssetsValue = assetValues.reduce((s, a) => s + a.value, 0) + state.cashBalance
 
                 return (
                   <div
@@ -97,25 +97,19 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
                       </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
-                      {/* Assets Side */}
                       <div className="p-4">
                         <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 border-b pb-1">
                           {t('assets')}
                         </h4>
                         <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-slate-600">
-                              {result.indexName} ({state.shares.INDEX.toFixed(1)} {t('shares')})
-                            </span>
-                            <span className="font-mono font-medium">{fmt(indexVal)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-slate-600">
-                              {result.leveragedName} ({state.shares.LEVERAGED.toFixed(1)}{' '}
-                              {t('shares')})
-                            </span>
-                            <span className="font-mono font-medium">{fmt(leveragedVal)}</span>
-                          </div>
+                          {assetValues.map((av) => (
+                            <div key={av.id} className="flex justify-between">
+                              <span className="text-slate-600">
+                                {av.id} ({(state.shares[av.id] || 0).toFixed(1)} {t('shares')})
+                              </span>
+                              <span className="font-mono font-medium">{fmt(av.value)}</span>
+                            </div>
+                          ))}
                           <div className="flex justify-between">
                             <span className="text-slate-600">{t('cash')}</span>
                             <span className="font-mono font-medium text-green-600">
@@ -124,12 +118,11 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
                           </div>
                           <div className="flex justify-between pt-2 border-t border-slate-100 font-bold mt-2">
                             <span>{t('totalAssets')}</span>
-                            <span>{fmt(totalAssets)}</span>
+                            <span>{fmt(totalAssetsValue)}</span>
                           </div>
                         </div>
                       </div>
 
-                      {/* Liabilities & Equity Side */}
                       <div className="p-4">
                         <h4 className="text-xs font-bold text-slate-400 uppercase mb-3 border-b pb-1">
                           {t('liabilities')}

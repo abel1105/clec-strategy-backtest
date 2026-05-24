@@ -180,7 +180,7 @@ const MainApp = () => {
       }
 
       // Benchmarks
-      if (profiles.length > 0) {
+      if (showBenchmarks && profiles.length > 0) {
         const firstInput = buildSimulationInput(profiles[0])
         if (firstInput) {
           for (const assetId of Object.keys(firstInput.assetData)) {
@@ -201,7 +201,7 @@ const MainApp = () => {
       setIsCalculating(false)
       if (window.innerWidth < 1024) setSidebarOpen(false)
     }, 100)
-  }, [profiles, buildSimulationInput, dataSources])
+  }, [profiles, showBenchmarks, buildSimulationInput, dataSources])
 
   useEffect(() => {
     handleRunSimulation()
