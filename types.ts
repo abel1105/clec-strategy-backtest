@@ -1,57 +1,43 @@
 // Domain Models
 
-export interface MarketDataRow {
-  date: string // ISO YYYY-MM-DD
-  // Close prices - used for trade execution
-  indexClose: number // was qqqClose
-  leveragedClose: number // was qldClose
-  // Low prices - used for valuation and margin call detection
-  indexLow: number // was qqqLow
-  leveragedLow: number // was qldLow
+export interface DataSource {
+  id: string
+  name: string
+  multiplier: number
+  data: AssetDataRow[]
+}
+
+export interface AssetDataRow {
+  date: string
+  close: number
+  low: number
+}
+
+export interface AssetEntry {
+  dataSourceId: string
+  targetWeight: number
+  contributionWeight: number
+  pledgeRatio: number
+}
+
+export interface MonthlyContext {
+  date: string
+  prices: Record<string, number>
+  lows: Record<string, number>
+  multipliers: Record<string, number>
+  monthIndex: number
 }
 
 export interface LeverageConfig {
   enabled: boolean
-  interestRate: number // Annual interest rate for the loan
-  // Pledge Ratios (0.0 - 1.0)
-  indexPledgeRatio: number // was qqqPledgeRatio
-  leveragedPledgeRatio: number // was qldPledgeRatio
-  cashPledgeRatio: number // e.g., 0.95
-  maxLtv: number // User's safety stop (Liquidation usually happens at 100% of Pledged Collateral)
+  interestRate: number
+  cashPledgeRatio: number
+  maxLtv: number
   withdrawType: 'PERCENT' | 'FIXED'
-  withdrawValue: number // Percentage (e.g. 2.0) or Fixed Amount
-  inflationRate: number // Annual inflation rate for FIXED withdrawals
-  interestType: 'MONTHLY' | 'MATURITY' | 'CAPITALIZED' // NEW: Interest payment mode
-  ltvBasis: 'TOTAL_ASSETS' | 'COLLATERAL' // NEW: LTV Calculation Basis
-}
-
-export interface AssetConfig {
-  initialCapital: number
-  contributionAmount: number // Amount per period
-  contributionIntervalMonths: number // 1 = Monthly, 3 = Quarterly, 12 = Yearly
-  yearlyContributionMonth: number // 1-12, which month for yearly contributions (default 12 = December)
-
-  // Asset Names (for display)
-  indexName: string // default "QQQ"
-  leveragedName: string // default "QLD"
-
-  // Initial / Target Portfolio Allocation
-  indexWeight: number // was qqqWeight
-  leveragedWeight: number // was qldWeight
-
-  // Recurring Contribution Allocation
-  contributionIndexWeight: number // was contributionQqqWeight
-  contributionLeveragedWeight: number // was contributionQldWeight
-
-  // Cash weight is derived: 100 - INDEX - LEVERAGED
-  cashYieldAnnual: number // Percentage, e.g., 4.0
-
-  // Flexible Rebalancing Config
-  annualExpenseAmount?: number // Annual living expense amount (default 2% of initial capital)
-  cashCoverageYears?: number // Target years of expenses in cash (default 15)
-
-  // Stock Pledging
-  leverage: LeverageConfig
+  withdrawValue: number
+  inflationRate: number
+  interestType: 'MONTHLY' | 'MATURITY' | 'CAPITALIZED'
+  ltvBasis: 'TOTAL_ASSETS' | 'COLLATERAL'
 }
 
 export type StrategyType = 'NO_REBALANCE' | 'REBALANCE' | 'SMART' | 'FLEXIBLE_1' | 'FLEXIBLE_2'
@@ -61,8 +47,17 @@ export interface Profile {
   name: string
   color: string
   strategyType: StrategyType
-  config: AssetConfig
-  dataSourceId?: string // null/undefined = built-in QQQ/QLD, string = reference to saved custom source
+  assets: AssetEntry[]
+  config: {
+    initialCapital: number
+    contributionAmount: number
+    contributionIntervalMonths: number
+    yearlyContributionMonth: number
+    cashYieldAnnual: number
+    annualExpenseAmount?: number
+    cashCoverageYears?: number
+    leverage: LeverageConfig
+  }
 }
 
 export interface FinancialEvent {
@@ -73,10 +68,7 @@ export interface FinancialEvent {
 
 export interface PortfolioState {
   date: string
-  shares: {
-    INDEX: number // was QQQ
-    LEVERAGED: number // was QLD
-  }
+  shares: Record<string, number>
   cashBalance: number
   debtBalance: number // New: Track margin loan balance
   accruedInterest: number // New: Simple interest accrued but not yet paid (for MATURITY mode)
@@ -93,10 +85,9 @@ export interface PortfolioState {
 
 export interface SimulationResult {
   strategyName: string
-  color: string // Added to carry profile color to charts
-  isLeveraged: boolean // Flag to indicate if leverage was enabled
-  indexName: string
-  leveragedName: string
+  color: string
+  isLeveraged: boolean
+  assetNames: string[]
   history: PortfolioState[]
   isBankrupt: boolean
   bankruptcyDate: string | null
@@ -115,10 +106,20 @@ export interface SimulationResult {
   }
 }
 
-// Function Protocol for Strategies
+export type ProfileConfig = {
+  initialCapital: number
+  contributionAmount: number
+  contributionIntervalMonths: number
+  yearlyContributionMonth: number
+  cashYieldAnnual: number
+  annualExpenseAmount?: number
+  cashCoverageYears?: number
+  leverage: LeverageConfig
+}
+
 export type StrategyFunction = (
   currentState: PortfolioState,
-  marketData: MarketDataRow,
-  config: AssetConfig,
-  monthIndex: number,
+  context: MonthlyContext,
+  assets: AssetEntry[],
+  config: ProfileConfig,
 ) => PortfolioState
