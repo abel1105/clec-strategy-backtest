@@ -50,6 +50,19 @@ Pure rename: every `dataRow.qqqClose` → `dataRow.indexClose`, `shares.QQQ` →
 
 Pure rename: all QQQ/QLD references → INDEX/LEVERAGED. Alpha/beta calculations (QLD=2x beta) still use the leveraged multiplier concept.
 
+### App State
+
+```typescript
+interface DataSourceState {
+  type:
+    | 'builtin' // Use built-in QQQ/QLD
+    | { type: 'custom'; name: string; asset1Raw: string; asset2Raw: string }
+  // name = user-given label, asset1Raw/asset2Raw = original txt content for localStorage
+}
+```
+
+On mount: if `localStorage` has saved custom data, restore it. If not, default to built-in.
+
 ### UI (`ConfigPanel.tsx`)
 
 Add a **Data Source** section at the top of the sidebar:
@@ -82,6 +95,8 @@ UI labels read from config.indexName / config.leveragedName
 - **File format errors**: Show user-friendly error message, fall back to built-in data
 - **No low price data**: Use minimum close within each month as low (conservative)
 - **Single-month files**: Work fine, just 1 row of market data
+- **Data persistence**: Uploaded txt file contents + user-given name saved to `localStorage`; survives page refresh
+- **Custom naming**: Upload dialog includes a text field for the user to name their data pair (e.g., "SPY/SSO Experimental")
 
 ## Files Changed
 
