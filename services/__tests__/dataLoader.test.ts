@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseTxtFile, aggregateToMonthly, monthlyPointsToAssetData, MonthlyPoint } from '../dataLoader'
+import { parseTxtFile, aggregateToMonthly, monthlyPointsToAssetData } from '../dataLoader'
 import { BUILT_IN_DATA_SOURCES } from '../../constants'
 
 describe('parseTxtFile', () => {

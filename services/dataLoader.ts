@@ -1,3 +1,5 @@
+import { AssetDataRow } from '../types'
+
 export interface DailyPoint {
   date: string // YYYYMMDD
   price: number
@@ -58,8 +60,6 @@ export function aggregateToMonthly(daily: DailyPoint[]): MonthlyPoint[] {
   result.sort((a, b) => a.month.localeCompare(b.month))
   return result
 }
-
-import { AssetDataRow } from '../types'
 
 export function monthlyPointsToAssetData(points: MonthlyPoint[]): AssetDataRow[] {
   return points.map((p) => ({
