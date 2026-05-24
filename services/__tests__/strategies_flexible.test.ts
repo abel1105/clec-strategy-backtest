@@ -8,10 +8,12 @@ describe('Flexible Rebalancing Strategies', () => {
     contributionAmount: 0,
     contributionIntervalMonths: 1,
     yearlyContributionMonth: 12,
-    qqqWeight: 50,
-    qldWeight: 30,
-    contributionQqqWeight: 50,
-    contributionQldWeight: 50,
+    indexName: 'QQQ',
+    leveragedName: 'QLD',
+    indexWeight: 50,
+    leveragedWeight: 30,
+    contributionIndexWeight: 50,
+    contributionLeveragedWeight: 50,
     cashYieldAnnual: 0,
     annualExpenseAmount: 2000, // Fixed amount ($2000/yr)
     cashCoverageYears: 15,
@@ -22,26 +24,26 @@ describe('Flexible Rebalancing Strategies', () => {
 
   const mockMarketData: MarketDataRow = {
     date: '2023-12-31',
-    qqqClose: 100,
-    qqqLow: 100,
-    qldClose: 100,
-    qldLow: 100,
+    indexClose: 100,
+    indexLow: 100,
+    leveragedClose: 100,
+    leveragedLow: 100,
   } as unknown as MarketDataRow
 
   const createInitialState = (
     cash: number,
-    qqqShares: number,
-    qldShares: number,
-    startQLDVal: number,
+    indexShares: number,
+    leveragedShares: number,
+    startLeveragedVal: number,
   ): PortfolioState => ({
     date: '2023-12-01',
-    shares: { QQQ: qqqShares, QLD: qldShares },
+    shares: { INDEX: indexShares, LEVERAGED: leveragedShares },
     cashBalance: cash,
     debtBalance: 0,
     accruedInterest: 0,
-    totalValue: qqqShares * 100 + qldShares * 100 + cash,
+    totalValue: indexShares * 100 + leveragedShares * 100 + cash,
     strategyMemory: {
-      startQLDVal: startQLDVal,
+      startLeveragedVal: startLeveragedVal,
       yearInflow: 0,
       currentYear: 2023,
     },
@@ -51,10 +53,10 @@ describe('Flexible Rebalancing Strategies', () => {
   })
 
   describe('Strategy Flexible 1 (Defensive)', () => {
-    it('Low Cash (< Target) + Bull Market: Should sell 1/3 QLD Profit to Cash', () => {
-      // Setup: Cash 10k (Needs 30k). QLD Profit = 20k (Start 10k, Current 30k)
-      // Current QLD Value = 300 shares * 100 = 30k.
-      // Start QLD Val = 10k. Profit = 20k.
+    it('Low Cash (< Target) + Bull Market: Should sell 1/3 LEVERAGED Profit to Cash', () => {
+      // Setup: Cash 10k (Needs 30k). LEVERAGED Profit = 20k (Start 10k, Current 30k)
+      // Current LEVERAGED Value = 300 shares * 100 = 30k.
+      // Start LEVERAGED Val = 10k. Profit = 20k.
       // Expect Sell: 20k / 3 = 6666.67 to Cash.
 
       const state = createInitialState(10000, 500, 300, 10000)
@@ -64,7 +66,7 @@ describe('Flexible Rebalancing Strategies', () => {
 
       const newState = strategyFlexible1(state, mockMarketData, baseConfig, 12) // Month 12 (Dec) triggers rebalance
 
-      expect(newState.shares.QLD).toBeLessThan(300)
+      expect(newState.shares.LEVERAGED).toBeLessThan(300)
       expect(newState.cashBalance).toBeGreaterThan(10000)
 
       const profit = 20000
@@ -73,21 +75,21 @@ describe('Flexible Rebalancing Strategies', () => {
       expect(newState.strategyMemory.lastAction).toContain('Defensive: Harvest Cash')
     })
 
-    it('Low Cash (< Target) + Bear Market: Should sell 2% Total Value (QQQ) -> Buy QLD', () => {
-      // Setup: Cash 10k. QLD Loss.
-      // QLD Start 40k. Current 30k. Profit -10k.
+    it('Low Cash (< Target) + Bear Market: Should sell 2% Total Value (INDEX) -> Buy LEVERAGED', () => {
+      // Setup: Cash 10k. LEVERAGED Loss.
+      // LEVERAGED Start 40k. Current 30k. Profit -10k.
       // Total Value 90k.
-      // Expect Sell QQQ: 90k * 0.02 = 1800.
+      // Expect Sell INDEX: 90k * 0.02 = 1800.
 
       const state = createInitialState(10000, 500, 300, 40000)
       const newState = strategyFlexible1(state, mockMarketData, baseConfig, 12)
 
-      expect(newState.shares.QQQ).toBeLessThan(500) // Sold QQQ
-      expect(newState.shares.QLD).toBeGreaterThan(300) // Bought QLD
-      expect(newState.strategyMemory.lastAction).toContain('Defensive: Rebalance QQQ->QLD')
+      expect(newState.shares.INDEX).toBeLessThan(500) // Sold INDEX
+      expect(newState.shares.LEVERAGED).toBeGreaterThan(300) // Bought LEVERAGED
+      expect(newState.strategyMemory.lastAction).toContain('Defensive: Rebalance INDEX->LEVERAGED')
 
       const sharesSold = 1800 / 100 // 18
-      expect(newState.shares.QQQ).toBeCloseTo(500 - sharesSold, 1)
+      expect(newState.shares.INDEX).toBeCloseTo(500 - sharesSold, 1)
     })
 
     it('Adequate Cash (> Target) + Bull Market: Should behave like Smart (Profit -> Cash)', () => {
@@ -116,37 +118,37 @@ describe('Flexible Rebalancing Strategies', () => {
   describe('Strategy Flexible 2 (Aggressive)', () => {
     it('Low Cash: Should behave like Flex 1 (Defensive)', () => {
       // Cash 10k (Low). Profit 20k.
-      // Expect: Sell to Cash (NOT QQQ).
+      // Expect: Sell to Cash (NOT INDEX).
       const state = createInitialState(10000, 500, 300, 10000)
       const newState = strategyFlexible2(state, mockMarketData, baseConfig, 12)
 
       expect(newState.strategyMemory.lastAction).toContain('Defensive: Harvest Cash')
-      expect(newState.shares.QQQ).toBe(500) // QQQ unchanged
+      expect(newState.shares.INDEX).toBe(500) // INDEX unchanged
       expect(newState.cashBalance).toBeGreaterThan(10000)
     })
 
-    it('Adequate Cash + Bull Market: Should Sell 1/3 Profit -> Buy QQQ', () => {
+    it('Adequate Cash + Bull Market: Should Sell 1/3 Profit -> Buy INDEX', () => {
       // Cash 50k (Adequate). Profit 20k.
-      // Expect: Sell QLD -> Buy QQQ. Cash Unchanged.
+      // Expect: Sell LEVERAGED -> Buy INDEX. Cash Unchanged.
       const state = createInitialState(50000, 500, 300, 10000)
       const newState = strategyFlexible2(state, mockMarketData, baseConfig, 12)
 
-      expect(newState.strategyMemory.lastAction).toContain('Aggressive: Profit to QQQ')
-      expect(newState.shares.QLD).toBeLessThan(300)
-      expect(newState.shares.QQQ).toBeGreaterThan(500)
+      expect(newState.strategyMemory.lastAction).toContain('Aggressive: Profit to INDEX')
+      expect(newState.shares.LEVERAGED).toBeLessThan(300)
+      expect(newState.shares.INDEX).toBeGreaterThan(500)
       expect(newState.cashBalance).toBe(50000) // Cash should rely on logic not touching it
     })
 
     it('Adequate Cash + Bear Market: Should behave like Smart (Buy Dip)', () => {
-      // Cash 50k. QLD Loss (Profit < 0).
+      // Cash 50k. LEVERAGED Loss (Profit < 0).
       // Expect: Buy Dip with Cash.
-      // QLD Start 40k. Current 30k. Profit -10k.
+      // LEVERAGED Start 40k. Current 30k. Profit -10k.
 
       const state = createInitialState(50000, 500, 300, 40000)
       const newState = strategyFlexible2(state, mockMarketData, baseConfig, 12)
 
       expect(newState.strategyMemory.lastAction).toContain('Aggressive: Buy Dip')
-      expect(newState.shares.QLD).toBeGreaterThan(300) // Bought dip
+      expect(newState.shares.LEVERAGED).toBeGreaterThan(300) // Bought dip
       expect(newState.cashBalance).toBeLessThan(50000) // Used cash
     })
   })
@@ -154,15 +156,15 @@ describe('Flexible Rebalancing Strategies', () => {
   describe('Sanity Checks & Boundaries', () => {
     it('Should never result in negative shares or cash even with extreme values', () => {
       // Extreme Setup: Very low shares/cash, force sell logic
-      // Cash 0. Profit > 0 (Force sell QLD -> Cash). But if we force a massive sell?
+      // Cash 0. Profit > 0 (Force sell LEVERAGED -> Cash). But if we force a massive sell?
       // Logic handles percentages/fixed logic, so normally fine.
       // Let's test "Sell logic when we have ALMOST NO shares"
 
       const state = createInitialState(0, 0.0001, 0.0001, 0) // Practically empty
       const newState = strategyFlexible1(state, mockMarketData, baseConfig, 12)
 
-      expect(newState.shares.QQQ).toBeGreaterThanOrEqual(0)
-      expect(newState.shares.QLD).toBeGreaterThanOrEqual(0)
+      expect(newState.shares.INDEX).toBeGreaterThanOrEqual(0)
+      expect(newState.shares.LEVERAGED).toBeGreaterThanOrEqual(0)
       expect(newState.cashBalance).toBeGreaterThanOrEqual(0)
     })
   })

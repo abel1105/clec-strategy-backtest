@@ -21,11 +21,11 @@ export const MARKET_DATA: MarketDataRow[] = (() => {
 
       return {
         date: `${month}-01`, // Convert "YYYY-MM" to "YYYY-MM-01"
-        qqqClose: qqqData?.close ?? 0,
-        qqqLow: qqqData?.low ?? 0,
-        qldClose: qldData?.close ?? 0,
-        qldLow: qldData?.low ?? 0,
+        indexClose: qqqData?.close ?? 0,
+        indexLow: qqqData?.low ?? 0,
+        leveragedClose: qldData?.close ?? 0,
+        leveragedLow: qldData?.low ?? 0,
       }
     })
-    .filter((row) => row.qqqClose > 0 && row.qldClose > 0)
+    .filter((row) => row.indexClose > 0 && row.leveragedClose > 0)
 })()

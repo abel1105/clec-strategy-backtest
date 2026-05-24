@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AssetConfig, Profile, StrategyType } from '../types'
+import { AssetConfig, Profile, StrategyType, MarketDataRow } from '../types'
 import {
   Settings,
   DollarSign,
@@ -15,6 +15,7 @@ import {
   Landmark,
   Info,
   AlertOctagon,
+  AlertTriangle,
   FileText,
   Download,
   Upload,
@@ -22,6 +23,13 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { useTranslation } from '../services/i18n'
+import { parseTxtFile, aggregateToMonthly, buildMarketData } from '../services/dataLoader'
+
+interface SavedSource {
+  id: string
+  name: string
+  marketData: MarketDataRow[]
+}
 
 interface ConfigPanelProps {
   profiles: Profile[]
@@ -31,6 +39,10 @@ interface ConfigPanelProps {
   hasResults: boolean
   showBenchmark: boolean
   onShowBenchmarkChange: (val: boolean) => void
+  savedSources: SavedSource[]
+  onSaveSource: (source: SavedSource) => void
+  onDeleteSource: (sourceId: string) => void
+  onImportData: (data: { profiles: Profile[]; savedSources: SavedSource[] }) => void
 }
 
 // High-contrast palette for distinct chart lines
@@ -52,16 +64,18 @@ const DEFAULT_ASSET_CONFIG: AssetConfig = {
   contributionAmount: 500,
   contributionIntervalMonths: 1,
   yearlyContributionMonth: 12, // Default to December
-  qqqWeight: 50,
-  qldWeight: 40,
-  contributionQqqWeight: 100, // Default to safer contribution
-  contributionQldWeight: 0,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 50,
+  leveragedWeight: 40,
+  contributionIndexWeight: 100, // Default to safer contribution
+  contributionLeveragedWeight: 0,
   cashYieldAnnual: 2.0,
   leverage: {
     enabled: false,
     interestRate: 5.0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0, // Default 0% pledge for leveraged ETF
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0, // Default 0% pledge for leveraged ETF
     cashPledgeRatio: 0.95,
     maxLtv: 100.0,
     withdrawType: 'PERCENT',
@@ -82,10 +96,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   hasResults,
   showBenchmark,
   onShowBenchmarkChange,
+  savedSources,
+  onSaveSource,
+  onDeleteSource,
+  onImportData,
 }) => {
   const { t } = useTranslation()
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
   const [hasChanged, setHasChanged] = useState(false)
+
+  const isValidSource = (src: SavedSource) => src.marketData.length > 0
 
   // Reset change tracker when starting to edit a new profile
   React.useEffect(() => {
@@ -137,7 +157,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       name: `${t('profiles')} ${profiles.length + 1}`,
       color: nextColor,
       strategyType: 'NO_REBALANCE',
-      config: JSON.parse(JSON.stringify(DEFAULT_ASSET_CONFIG)), // Deep copy
+      config: {
+        ...JSON.parse(JSON.stringify(DEFAULT_ASSET_CONFIG)),
+        indexName: 'QQQ',
+        leveragedName: 'QLD',
+      },
     }
 
     onProfilesChange([...profiles, newProfile])
@@ -172,9 +196,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     // Base template from the passed profile
     const baseConfig = baseProfile.config
 
-    // User's defined ratios (QQQ-QLD-Cash)
+    // User's defined ratios (Index-Leveraged-Cash)
     const candidates = [
-      { q: 10, l: 0, c: 0, name: 'Full QQQ' },
+      { q: 10, l: 0, c: 0, name: 'Full Index' },
       { q: 9, l: 0, c: 1, name: '901' },
       { q: 9, l: 1, c: 0, name: '910' },
       { q: 8, l: 1, c: 1, name: '811' },
@@ -259,11 +283,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             config: {
               ...baseConfig,
               // Initial Allocation
-              qqqWeight: init.q * 10,
-              qldWeight: init.l * 10,
+              indexWeight: init.q * 10,
+              leveragedWeight: init.l * 10,
               // DCA Allocation
-              contributionQqqWeight: dca.q * 10,
-              contributionQldWeight: dca.l * 10,
+              contributionIndexWeight: dca.q * 10,
+              contributionLeveragedWeight: dca.l * 10,
               // Use seed values if available, otherwise fallback to defaults
               annualExpenseAmount: baseConfig.annualExpenseAmount ?? 30000,
               cashCoverageYears: baseConfig.cashCoverageYears ?? 15,
@@ -315,7 +339,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   }
 
   const handleExport = () => {
-    const data = JSON.stringify(profiles, null, 2)
+    const referencedIds = new Set(profiles.map((p) => p.dataSourceId).filter(Boolean))
+    const referencedSources = savedSources.filter((s) => referencedIds.has(s.id))
+    const data = JSON.stringify({ version: 1, profiles, savedSources: referencedSources }, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -332,9 +358,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const reader = new FileReader()
     reader.onload = (event) => {
       try {
-        const imported = JSON.parse(event.target?.result as string)
-        if (Array.isArray(imported)) {
-          onProfilesChange(imported)
+        const raw = JSON.parse(event.target?.result as string)
+        if (Array.isArray(raw)) {
+          onProfilesChange(raw)
+        } else if (raw.version === 1 && Array.isArray(raw.profiles)) {
+          onImportData({
+            profiles: raw.profiles,
+            savedSources: Array.isArray(raw.savedSources) ? raw.savedSources : [],
+          })
+        } else {
+          alert('Invalid profiles data')
         }
       } catch (err) {
         console.error('Import failed:', err)
@@ -342,7 +375,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       }
     }
     reader.readAsText(file)
-    // Reset input
     e.target.value = ''
   }
 
@@ -360,10 +392,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const profile = profiles.find((p) => p.id === editingProfileId)
     if (!profile) return null
 
-    const cashWeight = Math.max(0, 100 - profile.config.qqqWeight - profile.config.qldWeight)
+    const cashWeight = Math.max(
+      0,
+      100 - profile.config.indexWeight - profile.config.leveragedWeight,
+    )
     const contribCashWeight = Math.max(
       0,
-      100 - profile.config.contributionQqqWeight - profile.config.contributionQldWeight,
+      100 - profile.config.contributionIndexWeight - profile.config.contributionLeveragedWeight,
     )
 
     // Calculate Maintenance Ratio for UI display
@@ -412,6 +447,152 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   style={{ backgroundColor: c }}
                 />
               ))}
+            </div>
+          </div>
+
+          {/* Data Source */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-500 uppercase">
+              {t('dataSource')}
+            </label>
+            <div className="space-y-1">
+              <label className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200">
+                <input
+                  type="radio"
+                  name={`dataSource-${profile.id}`}
+                  checked={profile.dataSourceId == null}
+                  onChange={() =>
+                    updateProfile(profile.id, {
+                      dataSourceId: undefined,
+                      config: { ...profile.config, indexName: 'QQQ', leveragedName: 'QLD' },
+                    })
+                  }
+                  className="accent-blue-600"
+                />
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-slate-700">QQQ / QLD (Built-in)</span>
+                  <p className="text-xs text-slate-400">Nasdaq 100 & 2x Leveraged ETF</p>
+                </div>
+              </label>
+              {savedSources.map((src) => {
+                const parts = src.name.split('/')
+                const indexName = parts[0]?.trim() || 'QQQ'
+                const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
+                return (
+                  <label
+                    key={src.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200"
+                  >
+                    <input
+                      type="radio"
+                      name={`dataSource-${profile.id}`}
+                      checked={profile.dataSourceId === src.id}
+                      onChange={() =>
+                        updateProfile(profile.id, {
+                          dataSourceId: src.id,
+                          config: { ...profile.config, indexName, leveragedName },
+                        })
+                      }
+                      className="accent-blue-600"
+                    />
+                    <span className="flex-1 text-sm font-medium text-slate-700 flex items-center gap-2">
+                      {src.name}
+                      {!isValidSource(src) && (
+                        <span title="Invalid format: needs 2 lines (dates + prices)">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                )
+              })}
+              <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
+                <summary className="flex items-center gap-2 p-3 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-lg select-none">
+                  <Plus className="w-4 h-4" /> {t('customData')}
+                </summary>
+                <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                      {t('dataSourceName')}
+                    </label>
+                    <input
+                      id={`new-source-name-${profile.id}`}
+                      type="text"
+                      placeholder="SPY/SSO"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                      1x ({t('indexAsset')})
+                    </label>
+                    <input
+                      id={`new-source-file1-${profile.id}`}
+                      type="file"
+                      accept=".txt"
+                      className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                      2x ({t('leveragedAsset')})
+                    </label>
+                    <input
+                      id={`new-source-file2-${profile.id}`}
+                      type="file"
+                      accept=".txt"
+                      className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by space</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const nameInput = document.getElementById(`new-source-name-${profile.id}`) as HTMLInputElement
+                      const file1Input = document.getElementById(`new-source-file1-${profile.id}`) as HTMLInputElement
+                      const file2Input = document.getElementById(`new-source-file2-${profile.id}`) as HTMLInputElement
+                      const file1 = file1Input?.files?.[0]
+                      const file2 = file2Input?.files?.[0]
+                      const name = nameInput?.value?.trim()
+                      if (!name || !file1 || !file2) return
+                      Promise.all([
+                        new Promise<string>((resolve) => {
+                          const r = new FileReader()
+                          r.onload = () => resolve(r.result as string)
+                          r.readAsText(file1)
+                        }),
+                        new Promise<string>((resolve) => {
+                          const r = new FileReader()
+                          r.onload = () => resolve(r.result as string)
+                          r.readAsText(file2)
+                        }),
+                      ]).then(([asset1Txt, asset2Txt]) => {
+                        const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4)
+                        const parts = name.split('/')
+                        const indexName = parts[0]?.trim() || 'QQQ'
+                        const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
+                        try {
+                          const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
+                          const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
+                          const marketData = buildMarketData(a1, a2)
+                          onSaveSource({ id, name, marketData })
+                          updateProfile(profile.id, {
+                            dataSourceId: id,
+                            config: { ...profile.config, indexName, leveragedName },
+                          })
+                        } catch (e) {
+                          alert('Invalid file format. Each file needs 2 lines: dates (YYYYMMDD) on line 1, prices on line 2.')
+                        }
+                        nameInput.value = ''
+                        file1Input.value = ''
+                        file2Input.value = ''
+                      })
+                    }}
+                    className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+                  >
+                    {t('save')}
+                  </button>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -593,19 +774,19 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>QQQ</span>
-                <span className="font-bold">{profile.config.qqqWeight}%</span>
+                <span>{profile.config.indexName}</span>
+                <span className="font-bold">{profile.config.indexWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.qqqWeight}
+                value={profile.config.indexWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { qqqWeight: val }
-                  if (val + profile.config.qldWeight > 100)
-                    updates.qldWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { indexWeight: val }
+                  if (val + profile.config.leveragedWeight > 100)
+                    updates.leveragedWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -614,19 +795,19 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>QLD (2x)</span>
-                <span className="font-bold">{profile.config.qldWeight}%</span>
+                <span>{profile.config.leveragedName}</span>
+                <span className="font-bold">{profile.config.leveragedWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.qldWeight}
+                value={profile.config.leveragedWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { qldWeight: val }
-                  if (val + profile.config.qqqWeight > 100)
-                    updates.qqqWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { leveragedWeight: val }
+                  if (val + profile.config.indexWeight > 100)
+                    updates.indexWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
@@ -646,19 +827,21 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>DCA (QQQ)</span>
-                <span className="font-bold">{profile.config.contributionQqqWeight}%</span>
+                <span>
+                  {t('dcaPrefix')} ({profile.config.indexName})
+                </span>
+                <span className="font-bold">{profile.config.contributionIndexWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.contributionQqqWeight}
+                value={profile.config.contributionIndexWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { contributionQqqWeight: val }
-                  if (val + profile.config.contributionQldWeight > 100)
-                    updates.contributionQldWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { contributionIndexWeight: val }
+                  if (val + profile.config.contributionLeveragedWeight > 100)
+                    updates.contributionLeveragedWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -667,19 +850,21 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>DCA (QLD)</span>
-                <span className="font-bold">{profile.config.contributionQldWeight}%</span>
+                <span>
+                  {t('dcaPrefix')} ({profile.config.leveragedName})
+                </span>
+                <span className="font-bold">{profile.config.contributionLeveragedWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.contributionQldWeight}
+                value={profile.config.contributionLeveragedWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { contributionQldWeight: val }
-                  if (val + profile.config.contributionQqqWeight > 100)
-                    updates.contributionQqqWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { contributionLeveragedWeight: val }
+                  if (val + profile.config.contributionIndexWeight > 100)
+                    updates.contributionIndexWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
@@ -790,16 +975,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 <div className="grid grid-cols-2 gap-3 bg-yellow-100/50 p-2 rounded-lg">
                   <div>
                     <label className="text-[10px] text-yellow-800 uppercase font-bold">
-                      {t('pledgeRatioQQQ')}
+                      {t('pledgeRatioQQQ')} ({profile.config.indexName})
                     </label>
                     <input
                       type="number"
                       step="0.05"
                       min="0"
                       max="1"
-                      value={profile.config.leverage.qqqPledgeRatio ?? 0.7}
+                      value={profile.config.leverage.indexPledgeRatio ?? 0.7}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        updateLeverage(profile.id, { qqqPledgeRatio: Number(e.target.value) })
+                        updateLeverage(profile.id, { indexPledgeRatio: Number(e.target.value) })
                       }
                       className="w-full px-2 py-1.5 border border-yellow-200 rounded outline-none text-sm"
                     />
@@ -822,16 +1007,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   </div>
                   <div className="col-span-2">
                     <label className="text-[10px] text-yellow-800 uppercase font-bold">
-                      {t('pledgeRatioQLD')}
+                      {t('pledgeRatioQLD')} ({profile.config.leveragedName})
                     </label>
                     <input
                       type="number"
                       step="0.05"
                       min="0"
                       max="1"
-                      value={profile.config.leverage.qldPledgeRatio ?? 0.0}
+                      value={profile.config.leverage.leveragedPledgeRatio ?? 0.0}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        updateLeverage(profile.id, { qldPledgeRatio: Number(e.target.value) })
+                        updateLeverage(profile.id, { leveragedPledgeRatio: Number(e.target.value) })
                       }
                       className="w-full px-2 py-1.5 border border-yellow-200 rounded outline-none text-sm text-yellow-900 bg-white focus:bg-white"
                     />
@@ -950,6 +1135,120 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         )}
       </div>
 
+      {/* Data Sources Management */}
+      <div className="mb-6 p-4 bg-white rounded-xl border border-slate-200 space-y-3 shadow-sm">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+          <Upload className="w-3.5 h-3.5" /> {t('dataSource')}
+        </h3>
+
+        {savedSources.length === 0 && (
+          <p className="text-xs text-slate-400 italic">{t('noDataSources') || 'No custom sources yet'}</p>
+        )}
+        {savedSources.map((src) => (
+          <div
+            key={src.id}
+            className="flex items-center gap-3 p-3 rounded-lg border border-slate-200"
+          >
+            {!isValidSource(src) && (
+              <span title="Invalid format: needs 2 lines (dates + prices)">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+              </span>
+            )}
+            <span className="flex-1 text-sm font-medium text-slate-700">{src.name}</span>
+            <button
+              onClick={() => onDeleteSource(src.id)}
+              className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+              title={t('deleteProfile')}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+
+        {/* New custom source */}
+        <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
+          <summary className="flex items-center gap-2 p-3 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-lg select-none">
+            <Plus className="w-4 h-4" /> {t('customData')}
+          </summary>
+          <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
+            <div>
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                {t('dataSourceName')}
+              </label>
+              <input
+                id="new-source-name"
+                type="text"
+                placeholder="SPY/SSO"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                1x ({t('indexAsset')})
+              </label>
+              <input
+                id="new-source-file1"
+                type="file"
+                accept=".txt"
+                className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by a space</p>
+            </div>
+            <div>
+              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                2x ({t('leveragedAsset')})
+              </label>
+              <input
+                id="new-source-file2"
+                type="file"
+                accept=".txt"
+                className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by a space</p>
+            </div>
+            <button
+              onClick={() => {
+                const nameInput = document.getElementById('new-source-name') as HTMLInputElement
+                const file1Input = document.getElementById('new-source-file1') as HTMLInputElement
+                const file2Input = document.getElementById('new-source-file2') as HTMLInputElement
+                const file1 = file1Input?.files?.[0]
+                const file2 = file2Input?.files?.[0]
+                const name = nameInput?.value?.trim()
+                if (!name || !file1 || !file2) return
+                Promise.all([
+                  new Promise<string>((resolve) => {
+                    const r = new FileReader()
+                    r.onload = () => resolve(r.result as string)
+                    r.readAsText(file1)
+                  }),
+                  new Promise<string>((resolve) => {
+                    const r = new FileReader()
+                    r.onload = () => resolve(r.result as string)
+                    r.readAsText(file2)
+                  }),
+                ]).then(([asset1Txt, asset2Txt]) => {
+                  const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4)
+                  try {
+                    const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
+                    const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
+                    const marketData = buildMarketData(a1, a2)
+                    onSaveSource({ id, name, marketData })
+                  } catch (e) {
+                    alert('Invalid file format. Each file needs 2 lines: dates (YYYYMMDD) on line 1, prices on line 2.')
+                  }
+                  nameInput.value = ''
+                  file1Input.value = ''
+                  file2Input.value = ''
+                })
+              }}
+              className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+            >
+              {t('save')}
+            </button>
+          </div>
+        </details>
+      </div>
+
       <div className="space-y-4">
         {profiles.map((profile) => (
           <div
@@ -996,10 +1295,10 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   <span className="text-slate-400 font-sans uppercase text-[9px]">Init</span>
                   <div className="flex bg-slate-50 rounded border border-slate-100 divide-x divide-slate-100 overflow-hidden">
                     <span className="px-1.5 py-0.5 text-blue-600 font-bold">
-                      {profile.config.qqqWeight}
+                      {profile.config.indexWeight}
                     </span>
                     <span className="px-1.5 py-0.5 text-purple-600 font-bold">
-                      {profile.config.qldWeight}
+                      {profile.config.leveragedWeight}
                     </span>
                   </div>
                 </div>
@@ -1007,9 +1306,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 <div className="flex items-center gap-1.5 text-[10px] font-mono">
                   <span className="text-slate-400 font-sans uppercase text-[9px]">DCA</span>
                   <div className="flex bg-slate-50 rounded border border-slate-100 divide-x divide-slate-100 overflow-hidden text-slate-500">
-                    <span className="px-1.5 py-0.5">{profile.config.contributionQqqWeight}</span>
+                    <span className="px-1.5 py-0.5">{profile.config.contributionIndexWeight}</span>
                     <span className="px-1.5 py-0.5 text-purple-400">
-                      {profile.config.contributionQldWeight}
+                      {profile.config.contributionLeveragedWeight}
                     </span>
                   </div>
                 </div>

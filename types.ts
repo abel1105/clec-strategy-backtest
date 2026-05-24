@@ -3,19 +3,19 @@
 export interface MarketDataRow {
   date: string // ISO YYYY-MM-DD
   // Close prices - used for trade execution
-  qqqClose: number
-  qldClose: number
+  indexClose: number // was qqqClose
+  leveragedClose: number // was qldClose
   // Low prices - used for valuation and margin call detection
-  qqqLow: number
-  qldLow: number
+  indexLow: number // was qqqLow
+  leveragedLow: number // was qldLow
 }
 
 export interface LeverageConfig {
   enabled: boolean
   interestRate: number // Annual interest rate for the loan
   // Pledge Ratios (0.0 - 1.0)
-  qqqPledgeRatio: number // e.g., 0.70
-  qldPledgeRatio: number // e.g., 0.10 (New: Allow QLD as collateral)
+  indexPledgeRatio: number // was qqqPledgeRatio
+  leveragedPledgeRatio: number // was qldPledgeRatio
   cashPledgeRatio: number // e.g., 0.95
   maxLtv: number // User's safety stop (Liquidation usually happens at 100% of Pledged Collateral)
   withdrawType: 'PERCENT' | 'FIXED'
@@ -31,15 +31,19 @@ export interface AssetConfig {
   contributionIntervalMonths: number // 1 = Monthly, 3 = Quarterly, 12 = Yearly
   yearlyContributionMonth: number // 1-12, which month for yearly contributions (default 12 = December)
 
+  // Asset Names (for display)
+  indexName: string // default "QQQ"
+  leveragedName: string // default "QLD"
+
   // Initial / Target Portfolio Allocation
-  qqqWeight: number // 0-100
-  qldWeight: number // 0-100
+  indexWeight: number // was qqqWeight
+  leveragedWeight: number // was qldWeight
 
   // Recurring Contribution Allocation
-  contributionQqqWeight: number // 0-100
-  contributionQldWeight: number // 0-100
+  contributionIndexWeight: number // was contributionQqqWeight
+  contributionLeveragedWeight: number // was contributionQldWeight
 
-  // Cash weight is derived: 100 - QQQ - QLD
+  // Cash weight is derived: 100 - INDEX - LEVERAGED
   cashYieldAnnual: number // Percentage, e.g., 4.0
 
   // Flexible Rebalancing Config
@@ -58,6 +62,7 @@ export interface Profile {
   color: string
   strategyType: StrategyType
   config: AssetConfig
+  dataSourceId?: string // null/undefined = built-in QQQ/QLD, string = reference to saved custom source
 }
 
 export interface FinancialEvent {
@@ -69,8 +74,8 @@ export interface FinancialEvent {
 export interface PortfolioState {
   date: string
   shares: {
-    QQQ: number
-    QLD: number
+    INDEX: number // was QQQ
+    LEVERAGED: number // was QLD
   }
   cashBalance: number
   debtBalance: number // New: Track margin loan balance
@@ -80,7 +85,7 @@ export interface PortfolioState {
   // Metadata for complex strategies (e.g., Smart Adjust)
   strategyMemory: Record<string, unknown>
   ltv: number // Loan to Value ratio for this step
-  beta: number // Portfolio Beta relative to QQQ
+  beta: number // Portfolio Beta relative to the index (1x asset)
 
   // New: Detailed logs for accounting reports
   events: FinancialEvent[]
@@ -90,6 +95,8 @@ export interface SimulationResult {
   strategyName: string
   color: string // Added to carry profile color to charts
   isLeveraged: boolean // Flag to indicate if leverage was enabled
+  indexName: string
+  leveragedName: string
   history: PortfolioState[]
   isBankrupt: boolean
   bankruptcyDate: string | null

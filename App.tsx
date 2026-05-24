@@ -4,10 +4,11 @@ import { ConfigPanel } from './components/ConfigPanel'
 import { ResultsDashboard } from './components/ResultsDashboard'
 import { MarketMonitor } from './components/MarketMonitor'
 import { FinancialReportModal } from './components/FinancialReportModal'
-import { MARKET_DATA } from './constants'
+import { MARKET_DATA as BUILTIN_DATA } from './constants'
+import { parseTxtFile, aggregateToMonthly, buildMarketData } from './services/dataLoader'
 import { runBacktest } from './services/simulationEngine'
 import { getStrategyByType } from './services/strategies'
-import { AssetConfig, Profile, SimulationResult } from './types'
+import { AssetConfig, Profile, SimulationResult, MarketDataRow } from './types'
 import {
   LayoutDashboard,
   Settings2,
@@ -22,22 +23,23 @@ import { version } from './package.json'
 
 const DEFAULT_CONFIG_A: AssetConfig = {
   initialCapital: 1000000,
-  contributionAmount: 5000, // Adjusted relative to 1M capital
+  contributionAmount: 5000,
   contributionIntervalMonths: 1,
-  yearlyContributionMonth: 12, // Default to December
-  qqqWeight: 50,
-  qldWeight: 40,
-  // Conservative DCA: Just buy QQQ
-  contributionQqqWeight: 100,
-  contributionQldWeight: 0,
+  yearlyContributionMonth: 12,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 50,
+  leveragedWeight: 40,
+  contributionIndexWeight: 100,
+  contributionLeveragedWeight: 0,
   cashYieldAnnual: 2.0,
   leverage: {
     enabled: false,
     interestRate: 5.0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0,
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0,
     cashPledgeRatio: 0.95,
-    maxLtv: 100, // Default 100% of PLEDGED value (Broker Limit)
+    maxLtv: 100,
     withdrawType: 'PERCENT',
     withdrawValue: 2.0,
     inflationRate: 0.0,
@@ -52,18 +54,19 @@ const DEFAULT_CONFIG_B: AssetConfig = {
   initialCapital: 1000000,
   contributionAmount: 5000,
   contributionIntervalMonths: 1,
-  yearlyContributionMonth: 12, // Default to December
-  qqqWeight: 10,
-  qldWeight: 80,
-  // Aggressive DCA: Match the portfolio weights
-  contributionQqqWeight: 10,
-  contributionQldWeight: 80,
+  yearlyContributionMonth: 12,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 10,
+  leveragedWeight: 80,
+  contributionIndexWeight: 10,
+  contributionLeveragedWeight: 80,
   cashYieldAnnual: 2.0,
   leverage: {
     enabled: false,
     interestRate: 5.0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0,
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0,
     cashPledgeRatio: 0.95,
     maxLtv: 100,
     withdrawType: 'PERCENT',
@@ -93,13 +96,45 @@ const INITIAL_PROFILES: Profile[] = [
   },
 ]
 
+interface SavedSource {
+  id: string
+  name: string
+  marketData: MarketDataRow[]
+}
+
 const MainApp = () => {
   const { t, language, setLanguage } = useTranslation()
+  const migrateProfiles = (profiles: Profile[]): Profile[] => {
+    return profiles.map((p) => {
+      const c = p.config
+      const needsMigrate = 'qqqWeight' in c
+      if (!needsMigrate) return p
+      return {
+        ...p,
+        config: {
+          ...c,
+          indexName: 'QQQ',
+          leveragedName: 'QLD',
+          indexWeight: (c as Record<string, unknown>).qqqWeight as number,
+          leveragedWeight: (c as Record<string, unknown>).qldWeight as number,
+          contributionIndexWeight: (c as Record<string, unknown>).contributionQqqWeight as number,
+          contributionLeveragedWeight: (c as Record<string, unknown>)
+            .contributionQldWeight as number,
+          leverage: {
+            ...c.leverage,
+            indexPledgeRatio: (c.leverage as unknown as Record<string, unknown>).qqqPledgeRatio as number,
+            leveragedPledgeRatio: (c.leverage as unknown as Record<string, unknown>).qldPledgeRatio as number,
+          },
+        },
+      }
+    })
+  }
+
   const [profiles, setProfiles] = useState<Profile[]>(() => {
     const saved = localStorage.getItem('app_profiles')
     if (saved) {
       try {
-        return JSON.parse(saved)
+        return migrateProfiles(JSON.parse(saved))
       } catch (e) {
         console.error('Failed to parse saved profiles:', e)
       }
@@ -114,8 +149,42 @@ const MainApp = () => {
   })
   const [isCalculating, setIsCalculating] = useState(false)
 
+  const [savedSources, setSavedSources] = useState<SavedSource[]>(() => {
+    const saved = localStorage.getItem('app_saved_sources')
+    if (!saved) return []
+    try {
+      const raw: unknown[] = JSON.parse(saved)
+      return raw.map((item: unknown) => {
+        const s = item as Record<string, unknown>
+        if (s.marketData) return s as unknown as SavedSource
+        if (s.asset1Txt && s.asset2Txt) {
+          try {
+            const a1 = aggregateToMonthly(parseTxtFile(s.asset1Txt as string))
+            const a2 = aggregateToMonthly(parseTxtFile(s.asset2Txt as string))
+            return { id: s.id as string, name: s.name as string, marketData: buildMarketData(a1, a2) }
+          } catch {
+            return null
+          }
+        }
+        return null
+      }).filter(Boolean) as SavedSource[]
+    } catch {
+      return []
+    }
+  })
+
+  const getMarketDataForSource = useCallback(
+    (sourceId: string | undefined): MarketDataRow[] => {
+      if (!sourceId) return BUILTIN_DATA
+      const source = savedSources.find((s) => s.id === sourceId)
+      return source?.marketData ?? BUILTIN_DATA
+    },
+    [savedSources],
+  )
+
   // Reporting Modal State
   const [reportResult, setReportResult] = useState<SimulationResult | null>(null)
+  const [reportMarketData, setReportMarketData] = useState<MarketDataRow[]>([])
 
   // View state: 'backtest' | 'monitor'
   const [currentView, setCurrentView] = useState<'backtest' | 'monitor'>('backtest')
@@ -126,27 +195,11 @@ const MainApp = () => {
     return saved !== null ? saved === 'true' : true
   })
 
-  // Clear results if market data has changed (cache busting)
+  // Migrate old localStorage keys
   useEffect(() => {
-    const lastDataDate = MARKET_DATA[MARKET_DATA.length - 1].date
-    const savedLastDate = localStorage.getItem('app_last_market_date')
-    const savedVersion = localStorage.getItem('app_version')
-
-    // Only clear if the version has major change or market data extended significantly
-    // and we are NOT in a testing environment (though window.CI isn't always set)
-    if (savedLastDate && savedLastDate !== lastDataDate) {
-      // Market data updated - just record the new date, don't necessarily clear everything
-      // unless the user explicitly wants to reset. For now, let's just update the tracker.
-      localStorage.setItem('app_last_market_date', lastDataDate)
+    for (const key of ['app_data_source', 'app_data_source_custom', 'app_data_source_selection', 'app_active_source_id']) {
+      if (localStorage.getItem(key)) localStorage.removeItem(key)
     }
-
-    if (savedVersion && savedVersion !== version) {
-      localStorage.setItem('app_version', version)
-      // If major version changed, we could clear, but let's be conservative to not break tests
-    }
-
-    if (!savedLastDate) localStorage.setItem('app_last_market_date', lastDataDate)
-    if (!savedVersion) localStorage.setItem('app_version', version)
   }, [])
 
   // Auto-collapse on small screens initially
@@ -170,6 +223,10 @@ const MainApp = () => {
   }, [isSidebarOpen])
 
   useEffect(() => {
+    localStorage.setItem('app_saved_sources', JSON.stringify(savedSources))
+  }, [savedSources])
+
+  useEffect(() => {
     if (profiles.length === 0) {
       setResults([])
       setIsCalculated(false)
@@ -186,8 +243,9 @@ const MainApp = () => {
       // 1. Run Strategy Backtests
       profiles.forEach((profile) => {
         const strategyFunc = getStrategyByType(profile.strategyType)
+        const profileMarketData = getMarketDataForSource(profile.dataSourceId)
         newResults.push(
-          runBacktest(MARKET_DATA, strategyFunc, profile.config, profile.name, profile.color),
+          runBacktest(profileMarketData, strategyFunc, profile.config, profile.name, profile.color),
         )
       })
 
@@ -196,51 +254,58 @@ const MainApp = () => {
         const firstProfile = profiles[0]
         if (!firstProfile) return
         const baseConfig = firstProfile.config
+        const benchmarkData = getMarketDataForSource(firstProfile.dataSourceId)
 
-        // Benchmark: QQQ (Nasdaq 100)
-        const qqqConfig: AssetConfig = {
+        // Benchmark: Index (1x)
+        const indexConfig: AssetConfig = {
           ...baseConfig,
-          qqqWeight: 100,
-          qldWeight: 0,
-          contributionQqqWeight: 100,
-          contributionQldWeight: 0,
+          indexName: baseConfig.indexName || 'QQQ',
+          leveragedName: baseConfig.leveragedName || 'QLD',
+          indexWeight: 100,
+          leveragedWeight: 0,
+          contributionIndexWeight: 100,
+          contributionLeveragedWeight: 0,
           leverage: {
             ...baseConfig.leverage,
-            enabled: false, // Benchmarks are unleveraged
+            enabled: false,
           },
         }
 
-        // Benchmark: QLD (2x Leveraged Nasdaq 100)
-        const qldConfig: AssetConfig = {
+        // Benchmark: Leveraged (2x)
+        const leveragedConfig: AssetConfig = {
           ...baseConfig,
-          qqqWeight: 0,
-          qldWeight: 100,
-          contributionQqqWeight: 0,
-          contributionQldWeight: 100,
+          indexName: baseConfig.indexName || 'QQQ',
+          leveragedName: baseConfig.leveragedName || 'QLD',
+          indexWeight: 0,
+          leveragedWeight: 100,
+          contributionIndexWeight: 0,
+          contributionLeveragedWeight: 100,
           leverage: {
             ...baseConfig.leverage,
-            enabled: false, // Benchmarks are unleveraged
+            enabled: false,
           },
         }
 
-        // Run Benchmarks (QQQ & QLD)
+        const indexName = baseConfig.indexName || 'QQQ'
+        const leveragedName = baseConfig.leveragedName || 'QLD'
+
         newResults.push(
           runBacktest(
-            MARKET_DATA,
+            benchmarkData,
             getStrategyByType('NO_REBALANCE'),
-            qqqConfig,
-            'Benchmark: QQQ',
-            '#64748b', // Slate-500
+            indexConfig,
+            `Benchmark: ${indexName}`,
+            '#64748b',
           ),
         )
 
         newResults.push(
           runBacktest(
-            MARKET_DATA,
+            benchmarkData,
             getStrategyByType('NO_REBALANCE'),
-            qldConfig,
-            'Benchmark: QLD',
-            '#94a3b8', // Slate-400
+            leveragedConfig,
+            `Benchmark: ${leveragedName}`,
+            '#94a3b8',
           ),
         )
       }
@@ -254,7 +319,7 @@ const MainApp = () => {
         setSidebarOpen(false)
       }
     }, 100) // Small delay to yield to UI thread
-  }, [profiles, showBenchmarks])
+  }, [profiles, showBenchmarks, getMarketDataForSource])
 
   useEffect(() => {
     handleRunSimulation()
@@ -263,11 +328,10 @@ const MainApp = () => {
 
   const handleViewDetails = (profileId: string) => {
     if (!isCalculated) return
-    // We need to map the profile ID to the result index.
-    // Since results map 1:1 to profiles array order:
     const index = profiles.findIndex((p) => p.id === profileId)
     if (index >= 0 && results[index]) {
       setReportResult(results[index])
+      setReportMarketData(getMarketDataForSource(profiles[index].dataSourceId))
     }
   }
 
@@ -284,7 +348,11 @@ const MainApp = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row font-sans text-slate-900 relative overflow-x-hidden">
       {/* Financial Report Modal */}
       {reportResult && (
-        <FinancialReportModal result={reportResult} onClose={() => setReportResult(null)} />
+        <FinancialReportModal
+          result={reportResult}
+          marketData={reportMarketData}
+          onClose={() => setReportResult(null)}
+        />
       )}
 
       {/* Mobile/Tablet Portrait Header (< 1024px) */}
@@ -432,13 +500,26 @@ const MainApp = () => {
               hasResults={isCalculated}
               showBenchmark={showBenchmarks}
               onShowBenchmarkChange={setShowBenchmarks}
+              savedSources={savedSources}
+              onSaveSource={(src) => {
+                setSavedSources((prev) => [...prev, src])
+              }}
+              onDeleteSource={(id: string) => {
+                setSavedSources((prev) => prev.filter((s) => s.id !== id))
+              }}
+              onImportData={({ profiles: importedProfiles, savedSources: importedSources }) => {
+                setProfiles(importedProfiles)
+                setSavedSources((prev) => {
+                  const existing = new Map(prev.map((s) => [s.id, s]))
+                  for (const src of importedSources) {
+                    existing.set(src.id, src)
+                  }
+                  return Array.from(existing.values())
+                })
+              }}
             />
 
             <div className="mt-8 px-2 text-xs text-slate-400 leading-relaxed hidden lg:block">
-              <p>
-                {t('dataRange')}: {MARKET_DATA[0].date.substring(0, 4)} -{' '}
-                {MARKET_DATA[MARKET_DATA.length - 1].date.substring(0, 4)}
-              </p>
               <p className="mt-2">{t('appDesc')}</p>
             </div>
           </div>
