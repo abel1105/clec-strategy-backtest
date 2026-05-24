@@ -62,6 +62,7 @@ export interface Profile {
   color: string
   strategyType: StrategyType
   config: AssetConfig
+  dataSourceId?: string // null/undefined = built-in QQQ/QLD, string = reference to saved custom source
 }
 
 export interface FinancialEvent {

@@ -10,18 +10,23 @@ export interface MonthlyPoint {
 }
 
 export function parseTxtFile(content: string): DailyPoint[] {
-  const lines = content.trim().split('\n')
-  if (lines.length < 2) {
-    throw new Error('Invalid file format: need at least 2 lines (dates + prices)')
+  const trimmed = content.trim()
+  const lines = trimmed.split('\n')
+
+  let dates: string[], prices: string[]
+
+  if (lines.length >= 2) {
+    dates = lines[0].split(',').map((s) => s.trim()).filter(Boolean)
+    prices = lines[1].split(',').map((s) => s.trim()).filter(Boolean)
+  } else if (lines.length === 1) {
+    const spaceIdx = trimmed.lastIndexOf(' ')
+    if (spaceIdx < 0) throw new Error('Invalid file format: single line must have dates and prices separated by space')
+    dates = trimmed.substring(0, spaceIdx).split(',').map((s) => s.trim()).filter(Boolean)
+    prices = trimmed.substring(spaceIdx + 1).split(',').map((s) => s.trim()).filter(Boolean)
+  } else {
+    throw new Error('Invalid file format: file is empty')
   }
-  const dates = lines[0]
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  const prices = lines[1]
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
+
   if (dates.length !== prices.length) {
     throw new Error(`Mismatch: ${dates.length} dates but ${prices.length} prices`)
   }

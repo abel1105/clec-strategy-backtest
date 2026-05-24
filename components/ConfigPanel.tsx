@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AssetConfig, Profile, StrategyType } from '../types'
+import { AssetConfig, Profile, StrategyType, MarketDataRow } from '../types'
 import {
   Settings,
   DollarSign,
@@ -15,6 +15,7 @@ import {
   Landmark,
   Info,
   AlertOctagon,
+  AlertTriangle,
   FileText,
   Download,
   Upload,
@@ -22,12 +23,12 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { useTranslation } from '../services/i18n'
+import { parseTxtFile, aggregateToMonthly, buildMarketData } from '../services/dataLoader'
 
 interface SavedSource {
   id: string
   name: string
-  asset1Txt: string
-  asset2Txt: string
+  marketData: MarketDataRow[]
 }
 
 interface ConfigPanelProps {
@@ -39,10 +40,9 @@ interface ConfigPanelProps {
   showBenchmark: boolean
   onShowBenchmarkChange: (val: boolean) => void
   savedSources: SavedSource[]
-  activeSourceId: string | null
-  onSaveSource: (source: { name: string; asset1Txt: string; asset2Txt: string }) => void
-  onSelectSource: (sourceId: string | null) => void
+  onSaveSource: (source: SavedSource) => void
   onDeleteSource: (sourceId: string) => void
+  onImportData: (data: { profiles: Profile[]; savedSources: SavedSource[] }) => void
 }
 
 // High-contrast palette for distinct chart lines
@@ -97,14 +97,15 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   showBenchmark,
   onShowBenchmarkChange,
   savedSources,
-  activeSourceId,
   onSaveSource,
-  onSelectSource,
   onDeleteSource,
+  onImportData,
 }) => {
   const { t } = useTranslation()
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
   const [hasChanged, setHasChanged] = useState(false)
+
+  const isValidSource = (src: SavedSource) => src.marketData.length > 0
 
   // Reset change tracker when starting to edit a new profile
   React.useEffect(() => {
@@ -151,10 +152,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const newId = Math.random().toString(36).substr(2, 9)
     const nextColor = PROFILE_COLORS[profiles.length % PROFILE_COLORS.length]
 
-    const activeSource = savedSources.find((s) => s.id === activeSourceId)
-    const parts = activeSource ? activeSource.name.split('/') : []
-    const indexName = parts[0]?.trim() || 'QQQ'
-    const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
     const newProfile: Profile = {
       id: newId,
       name: `${t('profiles')} ${profiles.length + 1}`,
@@ -162,8 +159,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       strategyType: 'NO_REBALANCE',
       config: {
         ...JSON.parse(JSON.stringify(DEFAULT_ASSET_CONFIG)),
-        indexName,
-        leveragedName,
+        indexName: 'QQQ',
+        leveragedName: 'QLD',
       },
     }
 
@@ -342,7 +339,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   }
 
   const handleExport = () => {
-    const data = JSON.stringify(profiles, null, 2)
+    const referencedIds = new Set(profiles.map((p) => p.dataSourceId).filter(Boolean))
+    const referencedSources = savedSources.filter((s) => referencedIds.has(s.id))
+    const data = JSON.stringify({ version: 1, profiles, savedSources: referencedSources }, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -359,9 +358,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const reader = new FileReader()
     reader.onload = (event) => {
       try {
-        const imported = JSON.parse(event.target?.result as string)
-        if (Array.isArray(imported)) {
-          onProfilesChange(imported)
+        const raw = JSON.parse(event.target?.result as string)
+        if (Array.isArray(raw)) {
+          onProfilesChange(raw)
+        } else if (raw.version === 1 && Array.isArray(raw.profiles)) {
+          onImportData({
+            profiles: raw.profiles,
+            savedSources: Array.isArray(raw.savedSources) ? raw.savedSources : [],
+          })
+        } else {
+          alert('Invalid profiles data')
         }
       } catch (err) {
         console.error('Import failed:', err)
@@ -369,7 +375,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       }
     }
     reader.readAsText(file)
-    // Reset input
     e.target.value = ''
   }
 
@@ -442,6 +447,152 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   style={{ backgroundColor: c }}
                 />
               ))}
+            </div>
+          </div>
+
+          {/* Data Source */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-500 uppercase">
+              {t('dataSource')}
+            </label>
+            <div className="space-y-1">
+              <label className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200">
+                <input
+                  type="radio"
+                  name={`dataSource-${profile.id}`}
+                  checked={profile.dataSourceId == null}
+                  onChange={() =>
+                    updateProfile(profile.id, {
+                      dataSourceId: undefined,
+                      config: { ...profile.config, indexName: 'QQQ', leveragedName: 'QLD' },
+                    })
+                  }
+                  className="accent-blue-600"
+                />
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-slate-700">QQQ / QLD (Built-in)</span>
+                  <p className="text-xs text-slate-400">Nasdaq 100 & 2x Leveraged ETF</p>
+                </div>
+              </label>
+              {savedSources.map((src) => {
+                const parts = src.name.split('/')
+                const indexName = parts[0]?.trim() || 'QQQ'
+                const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
+                return (
+                  <label
+                    key={src.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200"
+                  >
+                    <input
+                      type="radio"
+                      name={`dataSource-${profile.id}`}
+                      checked={profile.dataSourceId === src.id}
+                      onChange={() =>
+                        updateProfile(profile.id, {
+                          dataSourceId: src.id,
+                          config: { ...profile.config, indexName, leveragedName },
+                        })
+                      }
+                      className="accent-blue-600"
+                    />
+                    <span className="flex-1 text-sm font-medium text-slate-700 flex items-center gap-2">
+                      {src.name}
+                      {!isValidSource(src) && (
+                        <span title="Invalid format: needs 2 lines (dates + prices)">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                )
+              })}
+              <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
+                <summary className="flex items-center gap-2 p-3 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-lg select-none">
+                  <Plus className="w-4 h-4" /> {t('customData')}
+                </summary>
+                <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                      {t('dataSourceName')}
+                    </label>
+                    <input
+                      id={`new-source-name-${profile.id}`}
+                      type="text"
+                      placeholder="SPY/SSO"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                      1x ({t('indexAsset')})
+                    </label>
+                    <input
+                      id={`new-source-file1-${profile.id}`}
+                      type="file"
+                      accept=".txt"
+                      className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                      2x ({t('leveragedAsset')})
+                    </label>
+                    <input
+                      id={`new-source-file2-${profile.id}`}
+                      type="file"
+                      accept=".txt"
+                      className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by space</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const nameInput = document.getElementById(`new-source-name-${profile.id}`) as HTMLInputElement
+                      const file1Input = document.getElementById(`new-source-file1-${profile.id}`) as HTMLInputElement
+                      const file2Input = document.getElementById(`new-source-file2-${profile.id}`) as HTMLInputElement
+                      const file1 = file1Input?.files?.[0]
+                      const file2 = file2Input?.files?.[0]
+                      const name = nameInput?.value?.trim()
+                      if (!name || !file1 || !file2) return
+                      Promise.all([
+                        new Promise<string>((resolve) => {
+                          const r = new FileReader()
+                          r.onload = () => resolve(r.result as string)
+                          r.readAsText(file1)
+                        }),
+                        new Promise<string>((resolve) => {
+                          const r = new FileReader()
+                          r.onload = () => resolve(r.result as string)
+                          r.readAsText(file2)
+                        }),
+                      ]).then(([asset1Txt, asset2Txt]) => {
+                        const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4)
+                        const parts = name.split('/')
+                        const indexName = parts[0]?.trim() || 'QQQ'
+                        const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
+                        try {
+                          const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
+                          const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
+                          const marketData = buildMarketData(a1, a2)
+                          onSaveSource({ id, name, marketData })
+                          updateProfile(profile.id, {
+                            dataSourceId: id,
+                            config: { ...profile.config, indexName, leveragedName },
+                          })
+                        } catch (e) {
+                          alert('Invalid file format. Each file needs 2 lines: dates (YYYYMMDD) on line 1, prices on line 2.')
+                        }
+                        nameInput.value = ''
+                        file1Input.value = ''
+                        file2Input.value = ''
+                      })
+                    }}
+                    className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+                  >
+                    {t('save')}
+                  </button>
+                </div>
+              </details>
             </div>
           </div>
 
@@ -984,46 +1135,28 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         )}
       </div>
 
-      {/* Data Source Selector */}
+      {/* Data Sources Management */}
       <div className="mb-6 p-4 bg-white rounded-xl border border-slate-200 space-y-3 shadow-sm">
         <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
           <Upload className="w-3.5 h-3.5" /> {t('dataSource')}
         </h3>
 
-        {/* Built-in preset */}
-        <label className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200">
-          <input
-            type="radio"
-            name="dataSource"
-            checked={activeSourceId === null}
-            onChange={() => onSelectSource(null)}
-            className="accent-blue-600"
-          />
-          <div className="flex-1">
-            <span className="text-sm font-medium text-slate-700">QQQ / QLD (Built-in)</span>
-            <p className="text-xs text-slate-400">Nasdaq 100 & 2x Leveraged ETF</p>
-          </div>
-        </label>
-
-        {/* Saved custom sources */}
+        {savedSources.length === 0 && (
+          <p className="text-xs text-slate-400 italic">{t('noDataSources') || 'No custom sources yet'}</p>
+        )}
         {savedSources.map((src) => (
           <div
             key={src.id}
-            className={`flex items-center gap-3 p-3 rounded-lg border transition-colors hover:bg-slate-50 ${activeSourceId === src.id ? 'bg-blue-50 border-blue-200' : 'border-slate-200'}`}
+            className="flex items-center gap-3 p-3 rounded-lg border border-slate-200"
           >
-            <input
-              type="radio"
-              name="dataSource"
-              checked={activeSourceId === src.id}
-              onChange={() => onSelectSource(src.id)}
-              className="accent-blue-600"
-            />
+            {!isValidSource(src) && (
+              <span title="Invalid format: needs 2 lines (dates + prices)">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+              </span>
+            )}
             <span className="flex-1 text-sm font-medium text-slate-700">{src.name}</span>
             <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onDeleteSource(src.id)
-              }}
+              onClick={() => onDeleteSource(src.id)}
               className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
               title={t('deleteProfile')}
             >
@@ -1059,6 +1192,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 accept=".txt"
                 className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
+              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by a space</p>
             </div>
             <div>
               <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
@@ -1070,6 +1204,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 accept=".txt"
                 className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
               />
+              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by a space</p>
             </div>
             <button
               onClick={() => {
@@ -1092,7 +1227,15 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                     r.readAsText(file2)
                   }),
                 ]).then(([asset1Txt, asset2Txt]) => {
-                  onSaveSource({ name, asset1Txt, asset2Txt })
+                  const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4)
+                  try {
+                    const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
+                    const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
+                    const marketData = buildMarketData(a1, a2)
+                    onSaveSource({ id, name, marketData })
+                  } catch (e) {
+                    alert('Invalid file format. Each file needs 2 lines: dates (YYYYMMDD) on line 1, prices on line 2.')
+                  }
                   nameInput.value = ''
                   file1Input.value = ''
                   file2Input.value = ''
