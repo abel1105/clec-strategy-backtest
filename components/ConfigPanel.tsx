@@ -23,6 +23,14 @@ import {
 } from 'lucide-react'
 import { useTranslation } from '../services/i18n'
 
+interface CustomDataSource {
+  name: string
+  asset1Txt: string
+  asset2Txt: string
+}
+
+type DataSource = { type: 'builtin' } | { type: 'custom'; data: CustomDataSource }
+
 interface ConfigPanelProps {
   profiles: Profile[]
   onProfilesChange: (profiles: Profile[] | ((prev: Profile[]) => Profile[])) => void
@@ -31,6 +39,8 @@ interface ConfigPanelProps {
   hasResults: boolean
   showBenchmark: boolean
   onShowBenchmarkChange: (val: boolean) => void
+  dataSource: DataSource
+  onDataSourceChange: (ds: DataSource) => void
 }
 
 // High-contrast palette for distinct chart lines
@@ -52,16 +62,18 @@ const DEFAULT_ASSET_CONFIG: AssetConfig = {
   contributionAmount: 500,
   contributionIntervalMonths: 1,
   yearlyContributionMonth: 12, // Default to December
-  qqqWeight: 50,
-  qldWeight: 40,
-  contributionQqqWeight: 100, // Default to safer contribution
-  contributionQldWeight: 0,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 50,
+  leveragedWeight: 40,
+  contributionIndexWeight: 100, // Default to safer contribution
+  contributionLeveragedWeight: 0,
   cashYieldAnnual: 2.0,
   leverage: {
     enabled: false,
     interestRate: 5.0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0, // Default 0% pledge for leveraged ETF
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0, // Default 0% pledge for leveraged ETF
     cashPledgeRatio: 0.95,
     maxLtv: 100.0,
     withdrawType: 'PERCENT',
@@ -82,6 +94,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   hasResults,
   showBenchmark,
   onShowBenchmarkChange,
+  dataSource,
+  onDataSourceChange,
 }) => {
   const { t } = useTranslation()
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
@@ -172,9 +186,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     // Base template from the passed profile
     const baseConfig = baseProfile.config
 
-    // User's defined ratios (QQQ-QLD-Cash)
+    // User's defined ratios (Index-Leveraged-Cash)
     const candidates = [
-      { q: 10, l: 0, c: 0, name: 'Full QQQ' },
+      { q: 10, l: 0, c: 0, name: 'Full Index' },
       { q: 9, l: 0, c: 1, name: '901' },
       { q: 9, l: 1, c: 0, name: '910' },
       { q: 8, l: 1, c: 1, name: '811' },
@@ -259,11 +273,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             config: {
               ...baseConfig,
               // Initial Allocation
-              qqqWeight: init.q * 10,
-              qldWeight: init.l * 10,
+              indexWeight: init.q * 10,
+              leveragedWeight: init.l * 10,
               // DCA Allocation
-              contributionQqqWeight: dca.q * 10,
-              contributionQldWeight: dca.l * 10,
+              contributionIndexWeight: dca.q * 10,
+              contributionLeveragedWeight: dca.l * 10,
               // Use seed values if available, otherwise fallback to defaults
               annualExpenseAmount: baseConfig.annualExpenseAmount ?? 30000,
               cashCoverageYears: baseConfig.cashCoverageYears ?? 15,
@@ -360,10 +374,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const profile = profiles.find((p) => p.id === editingProfileId)
     if (!profile) return null
 
-    const cashWeight = Math.max(0, 100 - profile.config.qqqWeight - profile.config.qldWeight)
+    const cashWeight = Math.max(
+      0,
+      100 - profile.config.indexWeight - profile.config.leveragedWeight,
+    )
     const contribCashWeight = Math.max(
       0,
-      100 - profile.config.contributionQqqWeight - profile.config.contributionQldWeight,
+      100 - profile.config.contributionIndexWeight - profile.config.contributionLeveragedWeight,
     )
 
     // Calculate Maintenance Ratio for UI display
@@ -593,19 +610,19 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>QQQ</span>
-                <span className="font-bold">{profile.config.qqqWeight}%</span>
+                <span>{profile.config.indexName}</span>
+                <span className="font-bold">{profile.config.indexWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.qqqWeight}
+                value={profile.config.indexWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { qqqWeight: val }
-                  if (val + profile.config.qldWeight > 100)
-                    updates.qldWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { indexWeight: val }
+                  if (val + profile.config.leveragedWeight > 100)
+                    updates.leveragedWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -614,19 +631,19 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>QLD (2x)</span>
-                <span className="font-bold">{profile.config.qldWeight}%</span>
+                <span>{profile.config.leveragedName}</span>
+                <span className="font-bold">{profile.config.leveragedWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.qldWeight}
+                value={profile.config.leveragedWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { qldWeight: val }
-                  if (val + profile.config.qqqWeight > 100)
-                    updates.qqqWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { leveragedWeight: val }
+                  if (val + profile.config.indexWeight > 100)
+                    updates.indexWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
@@ -646,19 +663,21 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>DCA (QQQ)</span>
-                <span className="font-bold">{profile.config.contributionQqqWeight}%</span>
+                <span>
+                  {t('dcaPrefix')} ({profile.config.indexName})
+                </span>
+                <span className="font-bold">{profile.config.contributionIndexWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.contributionQqqWeight}
+                value={profile.config.contributionIndexWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { contributionQqqWeight: val }
-                  if (val + profile.config.contributionQldWeight > 100)
-                    updates.contributionQldWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { contributionIndexWeight: val }
+                  if (val + profile.config.contributionLeveragedWeight > 100)
+                    updates.contributionLeveragedWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -667,19 +686,21 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span>DCA (QLD)</span>
-                <span className="font-bold">{profile.config.contributionQldWeight}%</span>
+                <span>
+                  {t('dcaPrefix')} ({profile.config.leveragedName})
+                </span>
+                <span className="font-bold">{profile.config.contributionLeveragedWeight}%</span>
               </div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={profile.config.contributionQldWeight}
+                value={profile.config.contributionLeveragedWeight}
                 onChange={(e) => {
                   const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { contributionQldWeight: val }
-                  if (val + profile.config.contributionQqqWeight > 100)
-                    updates.contributionQqqWeight = Math.max(0, 100 - val)
+                  const updates: Partial<AssetConfig> = { contributionLeveragedWeight: val }
+                  if (val + profile.config.contributionIndexWeight > 100)
+                    updates.contributionIndexWeight = Math.max(0, 100 - val)
                   updateProfile(profile.id, updates)
                 }}
                 className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
@@ -790,16 +811,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 <div className="grid grid-cols-2 gap-3 bg-yellow-100/50 p-2 rounded-lg">
                   <div>
                     <label className="text-[10px] text-yellow-800 uppercase font-bold">
-                      {t('pledgeRatioQQQ')}
+                      {t('pledgeRatioQQQ')} ({profile.config.indexName})
                     </label>
                     <input
                       type="number"
                       step="0.05"
                       min="0"
                       max="1"
-                      value={profile.config.leverage.qqqPledgeRatio ?? 0.7}
+                      value={profile.config.leverage.indexPledgeRatio ?? 0.7}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        updateLeverage(profile.id, { qqqPledgeRatio: Number(e.target.value) })
+                        updateLeverage(profile.id, { indexPledgeRatio: Number(e.target.value) })
                       }
                       className="w-full px-2 py-1.5 border border-yellow-200 rounded outline-none text-sm"
                     />
@@ -822,16 +843,16 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   </div>
                   <div className="col-span-2">
                     <label className="text-[10px] text-yellow-800 uppercase font-bold">
-                      {t('pledgeRatioQLD')}
+                      {t('pledgeRatioQLD')} ({profile.config.leveragedName})
                     </label>
                     <input
                       type="number"
                       step="0.05"
                       min="0"
                       max="1"
-                      value={profile.config.leverage.qldPledgeRatio ?? 0.0}
+                      value={profile.config.leverage.leveragedPledgeRatio ?? 0.0}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        updateLeverage(profile.id, { qldPledgeRatio: Number(e.target.value) })
+                        updateLeverage(profile.id, { leveragedPledgeRatio: Number(e.target.value) })
                       }
                       className="w-full px-2 py-1.5 border border-yellow-200 rounded outline-none text-sm text-yellow-900 bg-white focus:bg-white"
                     />
@@ -950,6 +971,126 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         )}
       </div>
 
+      {/* Data Source Selector */}
+      <div className="mb-6 p-4 bg-white rounded-xl border border-slate-200 space-y-3 shadow-sm">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+          <Upload className="w-3.5 h-3.5" /> {t('dataSource')}
+        </h3>
+
+        {/* Built-in preset */}
+        <label className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200">
+          <input
+            type="radio"
+            name="dataSource"
+            checked={dataSource.type === 'builtin'}
+            onChange={() => onDataSourceChange({ type: 'builtin' })}
+            className="accent-blue-600"
+          />
+          <div className="flex-1">
+            <span className="text-sm font-medium text-slate-700">QQQ / QLD (Built-in)</span>
+            <p className="text-xs text-slate-400">Nasdaq 100 & 2x Leveraged ETF</p>
+          </div>
+        </label>
+
+        {/* Custom upload */}
+        <div
+          className={`p-3 rounded-lg border transition-colors ${dataSource.type === 'custom' ? 'bg-blue-50 border-blue-200' : 'border-slate-200'}`}
+        >
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="dataSource"
+              checked={dataSource.type === 'custom'}
+              onChange={() =>
+                onDataSourceChange({
+                  type: 'custom',
+                  data: { name: '', asset1Txt: '', asset2Txt: '' },
+                })
+              }
+              className="accent-blue-600"
+            />
+            <span className="text-sm font-medium text-slate-700">{t('customData')}</span>
+          </label>
+
+          {dataSource.type === 'custom' && (
+            <div className="mt-3 ml-7 space-y-3 animate-in slide-in-from-top-2 duration-200">
+              {/* Name */}
+              <div>
+                <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                  {t('dataSourceName')}
+                </label>
+                <input
+                  type="text"
+                  value={dataSource.data.name}
+                  onChange={(e) =>
+                    onDataSourceChange({
+                      ...dataSource,
+                      data: { ...dataSource.data, name: e.target.value },
+                    })
+                  }
+                  placeholder="SPY/SSO"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Asset 1 (Index) */}
+              <div>
+                <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                  1x ({t('indexAsset')})
+                </label>
+                <input
+                  type="file"
+                  accept=".txt"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = (ev) => {
+                      onDataSourceChange({
+                        ...dataSource,
+                        data: { ...dataSource.data, asset1Txt: ev.target?.result as string },
+                      })
+                    }
+                    reader.readAsText(file)
+                  }}
+                  className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {dataSource.data.asset1Txt && (
+                  <p className="text-xs text-green-600 mt-1">{t('fileLoaded')}</p>
+                )}
+              </div>
+
+              {/* Asset 2 (Leveraged) */}
+              <div>
+                <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
+                  2x ({t('leveragedAsset')})
+                </label>
+                <input
+                  type="file"
+                  accept=".txt"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const reader = new FileReader()
+                    reader.onload = (ev) => {
+                      onDataSourceChange({
+                        ...dataSource,
+                        data: { ...dataSource.data, asset2Txt: ev.target?.result as string },
+                      })
+                    }
+                    reader.readAsText(file)
+                  }}
+                  className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {dataSource.data.asset2Txt && (
+                  <p className="text-xs text-green-600 mt-1">{t('fileLoaded')}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="space-y-4">
         {profiles.map((profile) => (
           <div
@@ -996,10 +1137,10 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   <span className="text-slate-400 font-sans uppercase text-[9px]">Init</span>
                   <div className="flex bg-slate-50 rounded border border-slate-100 divide-x divide-slate-100 overflow-hidden">
                     <span className="px-1.5 py-0.5 text-blue-600 font-bold">
-                      {profile.config.qqqWeight}
+                      {profile.config.indexWeight}
                     </span>
                     <span className="px-1.5 py-0.5 text-purple-600 font-bold">
-                      {profile.config.qldWeight}
+                      {profile.config.leveragedWeight}
                     </span>
                   </div>
                 </div>
@@ -1007,9 +1148,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 <div className="flex items-center gap-1.5 text-[10px] font-mono">
                   <span className="text-slate-400 font-sans uppercase text-[9px]">DCA</span>
                   <div className="flex bg-slate-50 rounded border border-slate-100 divide-x divide-slate-100 overflow-hidden text-slate-500">
-                    <span className="px-1.5 py-0.5">{profile.config.contributionQqqWeight}</span>
+                    <span className="px-1.5 py-0.5">{profile.config.contributionIndexWeight}</span>
                     <span className="px-1.5 py-0.5 text-purple-400">
-                      {profile.config.contributionQldWeight}
+                      {profile.config.contributionLeveragedWeight}
                     </span>
                   </div>
                 </div>
