@@ -19,6 +19,11 @@ import {
   calculateUlcerIndex,
 } from './financeMath'
 
+const INTEREST_DISPLAY_THRESHOLD = 0.01
+const TRADE_EPSILON = 0.001
+const DEPOSIT_THRESHOLD = 1.0
+const NEGATIVE_CASH_LIMIT = -0.01
+
 export const runBacktest = (
   allAssetData: Record<string, AssetDataRow[]>,
   multipliers: Record<string, number>,
@@ -31,6 +36,13 @@ export const runBacktest = (
   const history: PortfolioState[] = []
 
   const assetIds = assets.map((a) => a.dataSourceId)
+
+  // Validate all data sources exist
+  for (const id of assetIds) {
+    if (!allAssetData[id]) {
+      throw new Error(`Data source "${id}" not found in provided asset data`)
+    }
+  }
 
   // Inner join on months: months present in ALL selected assets
   const monthSets = assetIds.map((id) => new Set(allAssetData[id].map((row) => row.date)))
@@ -128,7 +140,7 @@ export const runBacktest = (
     // 1. Banking Logic: Interest Accrual & Debt Service
     if (monthIdx > 0) {
       const interestEarned = currentState.cashBalance * monthlyCashYieldRate
-      if (interestEarned > 0.01) {
+      if (interestEarned > INTEREST_DISPLAY_THRESHOLD) {
         currentState.cashBalance += interestEarned
         monthEvents.push({
           type: 'INTEREST_INC',
@@ -205,7 +217,7 @@ export const runBacktest = (
       const diff = after - before
       const price = prices[id]
 
-      if (Math.abs(diff) > 0.001 && price) {
+      if (Math.abs(diff) > TRADE_EPSILON && price) {
         const cost = diff * price
         monthEvents.push({
           type: 'TRADE',
@@ -229,7 +241,7 @@ export const runBacktest = (
     }
     const impliedCashFlow = currentState.cashBalance - cashBeforeStrat + netTradeCost
 
-    if (impliedCashFlow > 1.0) {
+    if (impliedCashFlow > DEPOSIT_THRESHOLD) {
       monthEvents.push({
         type: 'DEPOSIT',
         amount: impliedCashFlow,
@@ -312,7 +324,7 @@ export const runBacktest = (
     }
 
     // Negative Cash Bankruptcy
-    if (!isBankrupt && currentState.cashBalance < -0.01) {
+    if (!isBankrupt && currentState.cashBalance < NEGATIVE_CASH_LIMIT) {
       isBankrupt = true
       bankruptcyDate = date
       currentState.totalValue = 0
