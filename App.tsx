@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Analytics } from '@vercel/analytics/react'
 import { ConfigPanel } from './components/ConfigPanel'
 import { ResultsDashboard } from './components/ResultsDashboard'
 import { MarketMonitor } from './components/MarketMonitor'
 import { FinancialReportModal } from './components/FinancialReportModal'
-import { MARKET_DATA } from './constants'
+import { MARKET_DATA as BUILTIN_DATA } from './constants'
+import { parseTxtFile, aggregateToMonthly, buildMarketData } from './services/dataLoader'
 import { runBacktest } from './services/simulationEngine'
 import { getStrategyByType } from './services/strategies'
 import { AssetConfig, Profile, SimulationResult } from './types'
@@ -22,22 +23,23 @@ import { version } from './package.json'
 
 const DEFAULT_CONFIG_A: AssetConfig = {
   initialCapital: 1000000,
-  contributionAmount: 5000, // Adjusted relative to 1M capital
+  contributionAmount: 5000,
   contributionIntervalMonths: 1,
-  yearlyContributionMonth: 12, // Default to December
-  qqqWeight: 50,
-  qldWeight: 40,
-  // Conservative DCA: Just buy QQQ
-  contributionQqqWeight: 100,
-  contributionQldWeight: 0,
+  yearlyContributionMonth: 12,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 50,
+  leveragedWeight: 40,
+  contributionIndexWeight: 100,
+  contributionLeveragedWeight: 0,
   cashYieldAnnual: 2.0,
   leverage: {
     enabled: false,
     interestRate: 5.0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0,
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0,
     cashPledgeRatio: 0.95,
-    maxLtv: 100, // Default 100% of PLEDGED value (Broker Limit)
+    maxLtv: 100,
     withdrawType: 'PERCENT',
     withdrawValue: 2.0,
     inflationRate: 0.0,
@@ -52,18 +54,19 @@ const DEFAULT_CONFIG_B: AssetConfig = {
   initialCapital: 1000000,
   contributionAmount: 5000,
   contributionIntervalMonths: 1,
-  yearlyContributionMonth: 12, // Default to December
-  qqqWeight: 10,
-  qldWeight: 80,
-  // Aggressive DCA: Match the portfolio weights
-  contributionQqqWeight: 10,
-  contributionQldWeight: 80,
+  yearlyContributionMonth: 12,
+  indexName: 'QQQ',
+  leveragedName: 'QLD',
+  indexWeight: 10,
+  leveragedWeight: 80,
+  contributionIndexWeight: 10,
+  contributionLeveragedWeight: 80,
   cashYieldAnnual: 2.0,
   leverage: {
     enabled: false,
     interestRate: 5.0,
-    qqqPledgeRatio: 0.7,
-    qldPledgeRatio: 0.0,
+    indexPledgeRatio: 0.7,
+    leveragedPledgeRatio: 0.0,
     cashPledgeRatio: 0.95,
     maxLtv: 100,
     withdrawType: 'PERCENT',
@@ -93,6 +96,14 @@ const INITIAL_PROFILES: Profile[] = [
   },
 ]
 
+interface CustomDataSource {
+  name: string
+  asset1Txt: string
+  asset2Txt: string
+}
+
+type DataSource = { type: 'builtin' } | { type: 'custom'; data: CustomDataSource }
+
 const MainApp = () => {
   const { t, language, setLanguage } = useTranslation()
   const [profiles, setProfiles] = useState<Profile[]>(() => {
@@ -114,6 +125,26 @@ const MainApp = () => {
   })
   const [isCalculating, setIsCalculating] = useState(false)
 
+  const [dataSource, setDataSource] = useState<DataSource>(() => {
+    const saved = localStorage.getItem('app_data_source')
+    if (saved) {
+      try {
+        return JSON.parse(saved)
+      } catch {
+        // ignore
+      }
+    }
+    return { type: 'builtin' }
+  })
+
+  const marketData = useMemo(() => {
+    if (dataSource.type === 'builtin') return BUILTIN_DATA
+    const { asset1Txt, asset2Txt } = dataSource.data
+    const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
+    const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
+    return buildMarketData(a1, a2)
+  }, [dataSource])
+
   // Reporting Modal State
   const [reportResult, setReportResult] = useState<SimulationResult | null>(null)
 
@@ -128,7 +159,7 @@ const MainApp = () => {
 
   // Clear results if market data has changed (cache busting)
   useEffect(() => {
-    const lastDataDate = MARKET_DATA[MARKET_DATA.length - 1].date
+    const lastDataDate = marketData[marketData.length - 1].date
     const savedLastDate = localStorage.getItem('app_last_market_date')
     const savedVersion = localStorage.getItem('app_version')
 
@@ -147,7 +178,7 @@ const MainApp = () => {
 
     if (!savedLastDate) localStorage.setItem('app_last_market_date', lastDataDate)
     if (!savedVersion) localStorage.setItem('app_version', version)
-  }, [])
+  }, [marketData])
 
   // Auto-collapse on small screens initially
   useEffect(() => {
@@ -170,6 +201,10 @@ const MainApp = () => {
   }, [isSidebarOpen])
 
   useEffect(() => {
+    localStorage.setItem('app_data_source', JSON.stringify(dataSource))
+  }, [dataSource])
+
+  useEffect(() => {
     if (profiles.length === 0) {
       setResults([])
       setIsCalculated(false)
@@ -187,7 +222,7 @@ const MainApp = () => {
       profiles.forEach((profile) => {
         const strategyFunc = getStrategyByType(profile.strategyType)
         newResults.push(
-          runBacktest(MARKET_DATA, strategyFunc, profile.config, profile.name, profile.color),
+          runBacktest(marketData, strategyFunc, profile.config, profile.name, profile.color),
         )
       })
 
@@ -197,50 +232,57 @@ const MainApp = () => {
         if (!firstProfile) return
         const baseConfig = firstProfile.config
 
-        // Benchmark: QQQ (Nasdaq 100)
-        const qqqConfig: AssetConfig = {
+        // Benchmark: Index (1x)
+        const indexConfig: AssetConfig = {
           ...baseConfig,
-          qqqWeight: 100,
-          qldWeight: 0,
-          contributionQqqWeight: 100,
-          contributionQldWeight: 0,
+          indexName: baseConfig.indexName || 'QQQ',
+          leveragedName: baseConfig.leveragedName || 'QLD',
+          indexWeight: 100,
+          leveragedWeight: 0,
+          contributionIndexWeight: 100,
+          contributionLeveragedWeight: 0,
           leverage: {
             ...baseConfig.leverage,
-            enabled: false, // Benchmarks are unleveraged
+            enabled: false,
           },
         }
 
-        // Benchmark: QLD (2x Leveraged Nasdaq 100)
-        const qldConfig: AssetConfig = {
+        // Benchmark: Leveraged (2x)
+        const leveragedConfig: AssetConfig = {
           ...baseConfig,
-          qqqWeight: 0,
-          qldWeight: 100,
-          contributionQqqWeight: 0,
-          contributionQldWeight: 100,
+          indexName: baseConfig.indexName || 'QQQ',
+          leveragedName: baseConfig.leveragedName || 'QLD',
+          indexWeight: 0,
+          leveragedWeight: 100,
+          contributionIndexWeight: 0,
+          contributionLeveragedWeight: 100,
           leverage: {
             ...baseConfig.leverage,
-            enabled: false, // Benchmarks are unleveraged
+            enabled: false,
           },
         }
 
-        // Run Benchmarks (QQQ & QLD)
+        const indexName = baseConfig.indexName || 'QQQ'
+        const leveragedName = baseConfig.leveragedName || 'QLD'
+
+        // Run Benchmarks
         newResults.push(
           runBacktest(
-            MARKET_DATA,
+            marketData,
             getStrategyByType('NO_REBALANCE'),
-            qqqConfig,
-            'Benchmark: QQQ',
-            '#64748b', // Slate-500
+            indexConfig,
+            `Benchmark: ${indexName}`,
+            '#64748b',
           ),
         )
 
         newResults.push(
           runBacktest(
-            MARKET_DATA,
+            marketData,
             getStrategyByType('NO_REBALANCE'),
-            qldConfig,
-            'Benchmark: QLD',
-            '#94a3b8', // Slate-400
+            leveragedConfig,
+            `Benchmark: ${leveragedName}`,
+            '#94a3b8',
           ),
         )
       }
@@ -254,7 +296,7 @@ const MainApp = () => {
         setSidebarOpen(false)
       }
     }, 100) // Small delay to yield to UI thread
-  }, [profiles, showBenchmarks])
+  }, [profiles, showBenchmarks, marketData])
 
   useEffect(() => {
     handleRunSimulation()
@@ -284,7 +326,11 @@ const MainApp = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row font-sans text-slate-900 relative overflow-x-hidden">
       {/* Financial Report Modal */}
       {reportResult && (
-        <FinancialReportModal result={reportResult} onClose={() => setReportResult(null)} />
+        <FinancialReportModal
+          result={reportResult}
+          marketData={marketData}
+          onClose={() => setReportResult(null)}
+        />
       )}
 
       {/* Mobile/Tablet Portrait Header (< 1024px) */}
@@ -432,12 +478,14 @@ const MainApp = () => {
               hasResults={isCalculated}
               showBenchmark={showBenchmarks}
               onShowBenchmarkChange={setShowBenchmarks}
+              dataSource={dataSource}
+              onDataSourceChange={setDataSource}
             />
 
             <div className="mt-8 px-2 text-xs text-slate-400 leading-relaxed hidden lg:block">
               <p>
-                {t('dataRange')}: {MARKET_DATA[0].date.substring(0, 4)} -{' '}
-                {MARKET_DATA[MARKET_DATA.length - 1].date.substring(0, 4)}
+                {t('dataRange')}: {marketData[0].date.substring(0, 4)} -{' '}
+                {marketData[marketData.length - 1].date.substring(0, 4)}
               </p>
               <p className="mt-2">{t('appDesc')}</p>
             </div>
