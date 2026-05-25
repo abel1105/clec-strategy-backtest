@@ -292,6 +292,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               targetWeight: init.q * 10,
               contributionWeight: dca.q * 10,
               pledgeRatio: primaryAsset.pledgeRatio,
+              withdrawalRatio: primaryAsset.withdrawalRatio,
             })
           }
           if (secondaryAsset && init.l > 0) {
@@ -300,6 +301,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               targetWeight: init.l * 10,
               contributionWeight: dca.l * 10,
               pledgeRatio: secondaryAsset.pledgeRatio,
+              withdrawalRatio: secondaryAsset.withdrawalRatio,
             })
           }
 
@@ -715,22 +717,38 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                        onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) })}
                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
                    </div>
-                   <div>
-                     <div className="flex justify-between items-center mb-1">
-                       <span className="text-gray-600">{t('pledgeRatio') || 'Pledge Ratio'}</span>
-                       <input
-                         type="number"
-                         min={0}
-                         max={100}
-                         value={(asset.pledgeRatio * 100).toFixed(0)}
-                         onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 || 0 })}
-                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                       />
-                     </div>
-                     <input type="range" min={0} max={100} value={asset.pledgeRatio * 100}
-                       onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 })}
-                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-yellow-600" />
-                   </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-gray-600">{t('pledgeRatio') || 'Pledge Ratio'}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={(asset.pledgeRatio * 100).toFixed(0)}
+                          onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 || 0 })}
+                          className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                        />
+                      </div>
+                      <input type="range" min={0} max={100} value={asset.pledgeRatio * 100}
+                        onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 })}
+                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-yellow-600" />
+                    </div>
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-gray-600">{t('withdrawalRatio') || 'Withdrawal Ratio'}</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={(asset.withdrawalRatio * 100).toFixed(0)}
+                          onChange={(e) => updateAsset(i, { withdrawalRatio: Number(e.target.value) / 100 || 0 })}
+                          className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <input type="range" min={0} max={100} value={asset.withdrawalRatio * 100}
+                        onChange={(e) => updateAsset(i, { withdrawalRatio: Number(e.target.value) / 100 })}
+                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                    </div>
                 </div>
               )
             })}
