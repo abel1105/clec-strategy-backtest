@@ -72,6 +72,13 @@ const DEFAULT_PROFILE_CONFIG: ProfileConfig = {
     interestType: 'CAPITALIZED',
     ltvBasis: 'TOTAL_ASSETS',
   },
+  withdrawal: {
+    enabled: false,
+    type: 'PERCENT',
+    value: 4,
+    inflationRate: 2,
+    sellMethod: 'PROPORTIONAL',
+  },
   annualExpenseAmount: 200,
   cashCoverageYears: 15,
 }
@@ -343,6 +350,21 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           config: {
             ...p.config,
             leverage: { ...p.config.leverage, ...updates },
+          },
+        }
+      }),
+    )
+    setHasChanged(true)
+  }
+  const updateWithdrawal = (id: string, updates: Partial<ProfileConfig['withdrawal']>) => {
+    onProfilesChange((prevProfiles) =>
+      prevProfiles.map((p) => {
+        if (p.id !== id) return p
+        return {
+          ...p,
+          config: {
+            ...p.config,
+            withdrawal: { ...p.config.withdrawal, ...updates },
           },
         }
       }),
