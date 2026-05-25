@@ -195,7 +195,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
   const handleDeleteProfile = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
-    if (profiles.length <= 1) return // Prevent deleting last profile
+
     onProfilesChange(profiles.filter((p) => p.id !== id))
     if (editingProfileId === id) setEditingProfileId(null)
   }
@@ -451,7 +451,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       updateProfile(profile.id, {
         assets: [
           ...profile.assets,
-          { dataSourceId, targetWeight: 0, contributionWeight: 0, pledgeRatio: 0.7 },
+          { dataSourceId, targetWeight: 0, contributionWeight: 0, pledgeRatio: 0.7, withdrawalRatio: 0 },
         ],
       })
     }

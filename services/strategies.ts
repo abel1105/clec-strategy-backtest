@@ -36,11 +36,11 @@ export const strategyNoRebalance: StrategyFunction = (state, ctx, assets, config
   }
 
   if (ctx.monthIndex === 0) {
-    nextState.cashBalance = config.initialCapital
+    const availableCash = nextState.cashBalance
     for (const asset of assets) {
       const price = ctx.prices[asset.dataSourceId]
       if (!price || price <= 0) continue
-      const amount = config.initialCapital * (asset.targetWeight / 100)
+      const amount = availableCash * (asset.targetWeight / 100)
       nextState.shares[asset.dataSourceId] = (nextState.shares[asset.dataSourceId] || 0) + amount / price
       nextState.cashBalance -= amount
     }

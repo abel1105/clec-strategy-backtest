@@ -502,7 +502,7 @@ describe('simulationEngine - N-Asset', () => {
   })
 
   describe('Withdrawal', () => {
-    it('should deduct PERCENT withdrawal from cash', () => {
+    it('should deduct PERCENT withdrawal from initial capital before strategy', () => {
       const config = baseConfig()
       config.initialCapital = 10000
       config.contributionAmount = 0
@@ -513,35 +513,14 @@ describe('simulationEngine - N-Asset', () => {
         inflationRate: 0,
         sellMethod: 'PROPORTIONAL',
       }
-      const testAssetsWithRatio: AssetEntry[] = [
-        {
-          dataSourceId: 'ASSET_A',
-          targetWeight: 60,
-          contributionWeight: 60,
-          pledgeRatio: 0.7,
-          withdrawalRatio: 0,
-        },
-        {
-          dataSourceId: 'ASSET_B',
-          targetWeight: 40,
-          contributionWeight: 40,
-          pledgeRatio: 0.5,
-          withdrawalRatio: 0,
-        },
-      ]
       const data = genData(1)
-      const result = runBacktest(
-        data,
-        defaultMultipliers,
-        strategyNoRebalance,
-        testAssetsWithRatio,
-        config,
-        'Test',
-      )
-      // Month 0: NoRebalance deploys all cash: A=60, B=40, cash=0.
-      // totalAssetValue = 10000. Withdrawal PERCENT 10% = 1000.
-      // cash=0 so remaining=1000. But withdrawalRatio=0 → maxSellable=0 → bankruptcy.
-      expect(result.isBankrupt).toBe(true)
+      const result = runBacktest(data, defaultMultipliers, strategyNoRebalance, testAssets, config, 'Test')
+      // Month 0: initialCapital=10000. Withdrawal 10% = 1000 taken first.
+      // cash=9000 left for strategy to deploy: A gets 5400@100=54, B gets 3600@100=36.
+      expect(result.history[0].cashBalance).toBe(0)
+      expect(result.history[0].shares['ASSET_A']).toBeCloseTo(54, 0)
+      expect(result.history[0].shares['ASSET_B']).toBeCloseTo(36, 0)
+      expect(result.isBankrupt).toBe(false)
     })
 
     it('should deduct FIXED withdrawal from cash when sufficient', () => {
@@ -558,13 +537,13 @@ describe('simulationEngine - N-Asset', () => {
       const noopStrategy: StrategyFunction = (state, _ctx, _assets, _config) => state
       const data = genData(1)
       const result = runBacktest(data, defaultMultipliers, noopStrategy, testAssets, config, 'Test')
-      // Month 0: cash=10000. Withdrawal FIXED 500. cash -= 500 = 9500.
+      // Month 0: cash=10000. Withdrawal FIXED 500. cash=9500.
       expect(result.history[0].cashBalance).toBe(9500)
     })
 
-    it('should sell assets via PRIORITY method', () => {
+    it('should sell assets via PRIORITY method on annual withdrawal', () => {
       const config = baseConfig()
-      config.initialCapital = 0
+      config.initialCapital = 2000
       config.contributionAmount = 0
       config.withdrawal = {
         enabled: true,
@@ -573,46 +552,32 @@ describe('simulationEngine - N-Asset', () => {
         inflationRate: 0,
         sellMethod: 'PRIORITY',
       }
-      const buyStrategy: StrategyFunction = (state, ctx, _assets, _config) => ({
-        ...state,
-        shares: { ASSET_A: 10, ASSET_B: 10 },
-        cashBalance: 0,
-      })
+      // Build shares over 12 months, then withdrawal triggers in January (month 12)
+      const buyAndHold: StrategyFunction = (state, ctx, _assets, _config) => {
+        if (ctx.monthIndex === 0) {
+          // Deploy all cash: 10 shares each at price 100
+          return { ...state, shares: { ASSET_A: 10, ASSET_B: 10 }, cashBalance: 0 }
+        }
+        return state
+      }
       const customAssets: AssetEntry[] = [
-        {
-          dataSourceId: 'ASSET_A',
-          targetWeight: 60,
-          contributionWeight: 60,
-          pledgeRatio: 0.7,
-          withdrawalRatio: 0.8,
-        },
-        {
-          dataSourceId: 'ASSET_B',
-          targetWeight: 40,
-          contributionWeight: 40,
-          pledgeRatio: 0.5,
-          withdrawalRatio: 0.3,
-        },
+        { dataSourceId: 'ASSET_A', targetWeight: 60, contributionWeight: 60, pledgeRatio: 0.7, withdrawalRatio: 0.8 },
+        { dataSourceId: 'ASSET_B', targetWeight: 40, contributionWeight: 40, pledgeRatio: 0.5, withdrawalRatio: 0.3 },
       ]
-      const data = genData(1, 100, 100)
-      const result = runBacktest(
-        data,
-        defaultMultipliers,
-        buyStrategy,
-        customAssets,
-        config,
-        'Test',
-      )
-      // A: maxSellValue=10*100*0.8=800, B: maxSellValue=10*100*0.3=300. totalSellable=1100.
-      // PRIORITY: A(0.8) > B(0.3). Sell A: min(800,600)=600 → 6 shares sold. remaining=0.
-      expect(result.history[0].shares['ASSET_A']).toBeCloseTo(4, 1)
-      expect(result.history[0].shares['ASSET_B']).toBeCloseTo(10, 1)
+      const data = genData(13, 100, 100)
+      const result = runBacktest(data, defaultMultipliers, buyAndHold, customAssets, config, 'Test')
+      // Month 12 (January, year 2): cash=0, A=10, B=10.
+      // Withdrawal FIXED 600. cashDeducted=0, remaining=600.
+      // A: maxSellValue=10*100*0.8=800, B: maxSellValue=10*100*0.3=300.
+      // PRIORITY: A(0.8) > B(0.3). Sell A: min(800,600)=600 → 6 shares. remaining=0.
+      expect(result.history[12].shares['ASSET_A']).toBeCloseTo(4, 1)
+      expect(result.history[12].shares['ASSET_B']).toBeCloseTo(10, 1)
       expect(result.isBankrupt).toBe(false)
     })
 
-    it('should sell assets via PROPORTIONAL method', () => {
+    it('should sell assets via PROPORTIONAL method on annual withdrawal', () => {
       const config = baseConfig()
-      config.initialCapital = 0
+      config.initialCapital = 2000
       config.contributionAmount = 0
       config.withdrawal = {
         enabled: true,
@@ -621,46 +586,28 @@ describe('simulationEngine - N-Asset', () => {
         inflationRate: 0,
         sellMethod: 'PROPORTIONAL',
       }
-      const buyStrategy: StrategyFunction = (state, ctx, _assets, _config) => ({
-        ...state,
-        shares: { ASSET_A: 10, ASSET_B: 10 },
-        cashBalance: 0,
-      })
+      const buyAndHold: StrategyFunction = (state, ctx, _assets, _config) => {
+        if (ctx.monthIndex === 0) {
+          return { ...state, shares: { ASSET_A: 10, ASSET_B: 10 }, cashBalance: 0 }
+        }
+        return state
+      }
       const customAssets: AssetEntry[] = [
-        {
-          dataSourceId: 'ASSET_A',
-          targetWeight: 60,
-          contributionWeight: 60,
-          pledgeRatio: 0.7,
-          withdrawalRatio: 0.8,
-        },
-        {
-          dataSourceId: 'ASSET_B',
-          targetWeight: 40,
-          contributionWeight: 40,
-          pledgeRatio: 0.5,
-          withdrawalRatio: 0.3,
-        },
+        { dataSourceId: 'ASSET_A', targetWeight: 60, contributionWeight: 60, pledgeRatio: 0.7, withdrawalRatio: 0.8 },
+        { dataSourceId: 'ASSET_B', targetWeight: 40, contributionWeight: 40, pledgeRatio: 0.5, withdrawalRatio: 0.3 },
       ]
-      const data = genData(1, 100, 100)
-      const result = runBacktest(
-        data,
-        defaultMultipliers,
-        buyStrategy,
-        customAssets,
-        config,
-        'Test',
-      )
-      // A: maxSellValue=800, B: maxSellValue=300, totalSellable=1100.
-      // PROPORTIONAL: A gets 600*(800/1100) = 436.36, B gets 600*(300/1100) = 163.64
-      expect(result.history[0].shares['ASSET_A']).toBeCloseTo(5.636, 2)
-      expect(result.history[0].shares['ASSET_B']).toBeCloseTo(8.364, 2)
+      const data = genData(13, 100, 100)
+      const result = runBacktest(data, defaultMultipliers, buyAndHold, customAssets, config, 'Test')
+      // Month 12: A=maxSellValue=800, B=maxSellValue=300, totalSellable=1100.
+      // PROPORTIONAL: A share = 600*(800/1100)=436.36, B share = 600*(300/1100)=163.64
+      expect(result.history[12].shares['ASSET_A']).toBeCloseTo(5.636, 2)
+      expect(result.history[12].shares['ASSET_B']).toBeCloseTo(8.364, 2)
       expect(result.isBankrupt).toBe(false)
     })
 
     it('should trigger bankruptcy when withdrawal exceeds sellable assets', () => {
       const config = baseConfig()
-      config.initialCapital = 0
+      config.initialCapital = 2000
       config.contributionAmount = 0
       config.withdrawal = {
         enabled: true,
@@ -669,44 +616,25 @@ describe('simulationEngine - N-Asset', () => {
         inflationRate: 0,
         sellMethod: 'PRIORITY',
       }
-      const buyStrategy: StrategyFunction = (state, ctx, _assets, _config) => ({
-        ...state,
-        shares: { ASSET_A: 10, ASSET_B: 10 },
-        cashBalance: 0,
-      })
+      const buyAndHold: StrategyFunction = (state, ctx, _assets, _config) => {
+        if (ctx.monthIndex === 0) {
+          return { ...state, shares: { ASSET_A: 10, ASSET_B: 10 }, cashBalance: 0 }
+        }
+        return state
+      }
       const customAssets: AssetEntry[] = [
-        {
-          dataSourceId: 'ASSET_A',
-          targetWeight: 60,
-          contributionWeight: 60,
-          pledgeRatio: 0.7,
-          withdrawalRatio: 0.1,
-        },
-        {
-          dataSourceId: 'ASSET_B',
-          targetWeight: 40,
-          contributionWeight: 40,
-          pledgeRatio: 0.5,
-          withdrawalRatio: 0.1,
-        },
+        { dataSourceId: 'ASSET_A', targetWeight: 60, contributionWeight: 60, pledgeRatio: 0.7, withdrawalRatio: 0.1 },
+        { dataSourceId: 'ASSET_B', targetWeight: 40, contributionWeight: 40, pledgeRatio: 0.5, withdrawalRatio: 0.1 },
       ]
-      const data = genData(1, 100, 100)
-      const result = runBacktest(
-        data,
-        defaultMultipliers,
-        buyStrategy,
-        customAssets,
-        config,
-        'Test',
-      )
-      // A: maxSellValue=100, B: maxSellValue=100, totalSellable=200.
-      // Withdrawal 5000 > 200 → bankruptcy
+      const data = genData(13, 100, 100)
+      const result = runBacktest(data, defaultMultipliers, buyAndHold, customAssets, config, 'Test')
+      // Month 12: each has maxSellValue=100, total=200. Withdrawal 5000 > 200 → bankruptcy.
       expect(result.isBankrupt).toBe(true)
     })
 
     it('should withdraw and leverage operate independently', () => {
       const config = baseConfig()
-      config.initialCapital = 20000
+      config.initialCapital = 3000
       config.contributionAmount = 0
       config.leverage = {
         enabled: true,
@@ -729,9 +657,9 @@ describe('simulationEngine - N-Asset', () => {
       const noopStrategy: StrategyFunction = (state, _ctx, _assets, _config) => state
       const data = genData(1, 100, 100)
       const result = runBacktest(data, defaultMultipliers, noopStrategy, testAssets, config, 'Test')
-      // Withdrawal: FIXED 1000 → cash=19000
+      // Withdrawal first: FIXED 1000 → cash=2000
       // Leverage: FIXED 2000 → debtBalance=2000
-      expect(result.history[0].cashBalance).toBe(19000)
+      expect(result.history[0].cashBalance).toBe(2000)
       expect(result.history[0].debtBalance).toBe(2000)
       expect(result.isBankrupt).toBe(false)
     })

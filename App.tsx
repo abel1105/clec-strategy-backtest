@@ -220,10 +220,11 @@ const MainApp = () => {
             const source = dataSources.find((s) => s.id === assetId)
             if (!source) continue
             const benchAssets: AssetEntry[] = [
-              { dataSourceId: assetId, targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7 },
+              { dataSourceId: assetId, targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7, withdrawalRatio: 0 },
             ]
+            const benchConfig = { ...profiles[0].config, withdrawal: { ...profiles[0].config.withdrawal, enabled: false } }
             newResults.push(
-              runBacktest(firstInput.assetData, firstInput.multipliers, getStrategyByType('NO_REBALANCE'), benchAssets, profiles[0].config, `Benchmark: ${source.name}`, '#64748b', backtestWindow.startMonth, backtestWindow.endMonth),
+              runBacktest(firstInput.assetData, firstInput.multipliers, getStrategyByType('NO_REBALANCE'), benchAssets, benchConfig, `Benchmark: ${source.name}`, '#64748b', backtestWindow.startMonth, backtestWindow.endMonth),
             )
           }
         }
@@ -341,7 +342,7 @@ const MainApp = () => {
       {/* Sidebar Container */}
       <aside
         className={`
-            fixed inset-y-0 left-0 z-50 
+            fixed inset-y-0 left-0 z-50
             bg-slate-50 border-r border-slate-200 
             flex flex-col flex-shrink-0
             transition-all duration-300 ease-in-out
@@ -349,10 +350,10 @@ const MainApp = () => {
             
             /* Mobile Logic: slide in/out */
             ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-            w-80
+            w-80 lg:h-screen
             
-            /* Desktop Logic: Sticky, variable width, reset fixed positioning */
-            lg:translate-x-0 lg:static lg:inset-auto lg:h-screen lg:sticky lg:top-0
+            /* Desktop: always visible, variable width */
+            lg:translate-x-0
             ${isSidebarOpen ? 'lg:w-80 xl:w-96 lg:border-r' : 'lg:w-0 lg:border-none lg:overflow-hidden'}
           `}
       >
@@ -459,7 +460,7 @@ const MainApp = () => {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 min-w-0 p-4 lg:p-8 relative">
+      <main className={`flex-1 min-w-0 p-4 lg:p-8 relative ${isSidebarOpen ? 'lg:ml-80 xl:ml-96' : ''}`}>
         {/* Desktop Expand Button (Floating) */}
         <div
           className={`fixed top-6 left-6 z-30 transition-opacity duration-300 ${!isSidebarOpen && window.innerWidth >= 1024 ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}

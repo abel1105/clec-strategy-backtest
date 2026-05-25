@@ -51,7 +51,7 @@ const empty = (): PortfolioState => ({
 
 describe('strategyNoRebalance', () => {
   it('initial allocation uses targetWeight', () => {
-    const state = empty()
+    const state = { ...empty(), cashBalance: testConfig.initialCapital }
     const result = strategyNoRebalance(state, ctx('2020-01-01', { A: 100, B: 100 }, 0), testAssets, testConfig)
 
     // A: 60% of 10000 / 100 = 60 shares

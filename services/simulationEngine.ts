@@ -7,6 +7,7 @@ import {
   ProfileConfig,
   FinancialEvent,
   AssetDataRow,
+  BankruptcyReason,
 } from '../types'
 import {
   calculateCAGR,
@@ -69,6 +70,7 @@ export const runBacktest = (
       history: [],
       isBankrupt: false,
       bankruptcyDate: null,
+      bankruptcyReason: null,
       metrics: {
         finalBalance: 0,
         cagr: 0,
@@ -108,6 +110,7 @@ export const runBacktest = (
 
   let isBankrupt = false
   let bankruptcyDate: string | null = null
+  let bankruptcyReason: BankruptcyReason | null = null
 
   for (let monthIdx = 0; monthIdx < filteredMonths.length; monthIdx++) {
     const date = filteredMonths[monthIdx]
@@ -219,120 +222,7 @@ export const runBacktest = (
       }
     }
 
-    // 2. Execute Investment Strategy
-    const cashBeforeStrat = currentState.cashBalance
-    const sharesBeforeStrat = { ...currentState.shares }
-
-    currentState = strategyFunc(currentState, ctx, assets, config)
-
-    // Detect Trades
-    for (const entry of assets) {
-      const id = entry.dataSourceId
-      const before = sharesBeforeStrat[id] || 0
-      const after = currentState.shares[id] || 0
-      const diff = after - before
-      const price = prices[id]
-
-      if (Math.abs(diff) > TRADE_EPSILON && price) {
-        const cost = diff * price
-        monthEvents.push({
-          type: 'TRADE',
-          amount: -cost,
-          description: `${diff > 0 ? 'Buy' : 'Sell'} ${Math.abs(diff).toFixed(2)} ${id} @ ${price.toFixed(2)}`,
-        })
-      }
-    }
-
-    // Detect DCA Deposit
-    let netTradeCost = 0
-    for (const entry of assets) {
-      const id = entry.dataSourceId
-      const before = sharesBeforeStrat[id] || 0
-      const after = currentState.shares[id] || 0
-      const diff = after - before
-      const price = prices[id]
-      if (price) {
-        netTradeCost += diff * price
-      }
-    }
-    const impliedCashFlow = currentState.cashBalance - cashBeforeStrat + netTradeCost
-
-    if (impliedCashFlow > DEPOSIT_THRESHOLD) {
-      monthEvents.push({
-        type: 'DEPOSIT',
-        amount: impliedCashFlow,
-        description: 'Recurring Contribution / Deposit',
-      })
-    }
-
-    // 3. Leverage / Pledging Logic
-    if (leverage.enabled) {
-      const currentMonth = parseInt(date.substring(5, 7)) - 1
-
-      // Use LOW prices for conservative valuation
-      let totalAssetValue = currentState.cashBalance
-      let effectiveCollateral = currentState.cashBalance * leverage.cashPledgeRatio
-
-      for (const entry of assets) {
-        const id = entry.dataSourceId
-        const lowPrice = lows[id] || 0
-        const shares = currentState.shares[id] || 0
-        const assetVal = shares * lowPrice
-        totalAssetValue += assetVal
-        effectiveCollateral += assetVal * entry.pledgeRatio
-      }
-
-      // Withdrawal Logic
-      const isWithdrawalTiming = monthIdx === 0 || currentMonth === 0
-
-      if (isWithdrawalTiming && effectiveCollateral > 0) {
-        let borrowAmount = 0
-        if (leverage.withdrawType === 'PERCENT') {
-          borrowAmount = totalAssetValue * (leverage.withdrawValue / 100)
-        } else {
-          const yearsPassed = Math.floor(monthIdx / 12)
-          const inflationFactor = Math.pow(1 + (leverage.inflationRate || 0) / 100, yearsPassed)
-          borrowAmount = leverage.withdrawValue * inflationFactor
-        }
-
-        if (borrowAmount > 0) {
-          currentState.debtBalance += borrowAmount
-          monthEvents.push({
-            type: 'WITHDRAW',
-            amount: -borrowAmount,
-            description:
-              monthIdx === 0 ? 'Initial Loan Withdrawal' : 'Annual Living Expense Withdrawal',
-          })
-          monthEvents.push({
-            type: 'DEBT_INC',
-            amount: borrowAmount,
-            description: 'Borrowing increased for withdrawal',
-          })
-        }
-      }
-
-      // Solvency Check
-      if (effectiveCollateral > 0) {
-        const totalLiability = currentState.debtBalance + currentState.accruedInterest
-        const ltvDenominator =
-          leverage.ltvBasis === 'COLLATERAL' ? effectiveCollateral : totalAssetValue
-        currentState.ltv = ltvDenominator > 0 ? (totalLiability / ltvDenominator) * 100 : 9999
-      } else {
-        currentState.ltv = currentState.debtBalance + currentState.accruedInterest > 0 ? 9999 : 0
-      }
-
-      if (currentState.ltv > leverage.maxLtv) {
-        isBankrupt = true
-        bankruptcyDate = date
-        currentState.totalValue = 0
-        monthEvents.push({
-          type: 'INFO',
-          description: `!!! MARGIN CALL / LIQUIDATION (LTV: ${currentState.ltv.toFixed(1)}%) !!!`,
-        })
-      }
-    }
-
-    // 3b. Withdrawal Logic (independent from leverage)
+    // 2. Withdrawal Logic (before strategy — set aside spending first, then invest)
     if (config.withdrawal?.enabled) {
       const currentMonth = parseInt(date.substring(5, 7)) - 1
       const isWithdrawalTiming = monthIdx === 0 || currentMonth === 0
@@ -385,6 +275,7 @@ export const runBacktest = (
             if (totalSellable < remaining) {
               isBankrupt = true
               bankruptcyDate = date
+              bankruptcyReason = 'WITHDRAWAL'
               currentState.totalValue = 0
               monthEvents.push({
                 type: 'INFO',
@@ -437,10 +328,125 @@ export const runBacktest = (
       }
     }
 
-    // Negative Cash Bankruptcy
+    // 3. Execute Investment Strategy
+    const cashBeforeStrat = currentState.cashBalance
+    const sharesBeforeStrat = { ...currentState.shares }
+
+    currentState = strategyFunc(currentState, ctx, assets, config)
+
+    // Detect Trades
+    for (const entry of assets) {
+      const id = entry.dataSourceId
+      const before = sharesBeforeStrat[id] || 0
+      const after = currentState.shares[id] || 0
+      const diff = after - before
+      const price = prices[id]
+
+      if (Math.abs(diff) > TRADE_EPSILON && price) {
+        const cost = diff * price
+        monthEvents.push({
+          type: 'TRADE',
+          amount: -cost,
+          description: `${diff > 0 ? 'Buy' : 'Sell'} ${Math.abs(diff).toFixed(2)} ${id} @ ${price.toFixed(2)}`,
+        })
+      }
+    }
+
+    // Detect DCA Deposit
+    let netTradeCost = 0
+    for (const entry of assets) {
+      const id = entry.dataSourceId
+      const before = sharesBeforeStrat[id] || 0
+      const after = currentState.shares[id] || 0
+      const diff = after - before
+      const price = prices[id]
+      if (price) {
+        netTradeCost += diff * price
+      }
+    }
+    const impliedCashFlow = currentState.cashBalance - cashBeforeStrat + netTradeCost
+
+    if (impliedCashFlow > DEPOSIT_THRESHOLD) {
+      monthEvents.push({
+        type: 'DEPOSIT',
+        amount: impliedCashFlow,
+        description: 'Recurring Contribution / Deposit',
+      })
+    }
+
+    // 4. Leverage / Pledging Logic
+    if (leverage.enabled) {
+      const currentMonth = parseInt(date.substring(5, 7)) - 1
+
+      // Use LOW prices for conservative valuation
+      let totalAssetValue = currentState.cashBalance
+      let effectiveCollateral = currentState.cashBalance * leverage.cashPledgeRatio
+
+      for (const entry of assets) {
+        const id = entry.dataSourceId
+        const lowPrice = lows[id] || 0
+        const shares = currentState.shares[id] || 0
+        const assetVal = shares * lowPrice
+        totalAssetValue += assetVal
+        effectiveCollateral += assetVal * entry.pledgeRatio
+      }
+
+      // Withdrawal Logic
+      const isWithdrawalTiming = monthIdx === 0 || currentMonth === 0
+
+      if (isWithdrawalTiming && effectiveCollateral > 0) {
+        let borrowAmount = 0
+        if (leverage.withdrawType === 'PERCENT') {
+          borrowAmount = totalAssetValue * (leverage.withdrawValue / 100)
+        } else {
+          const yearsPassed = Math.floor(monthIdx / 12)
+          const inflationFactor = Math.pow(1 + (leverage.inflationRate || 0) / 100, yearsPassed)
+          borrowAmount = leverage.withdrawValue * inflationFactor
+        }
+
+        if (borrowAmount > 0) {
+          currentState.debtBalance += borrowAmount
+          monthEvents.push({
+            type: 'WITHDRAW',
+            amount: -borrowAmount,
+            description:
+              monthIdx === 0 ? 'Initial Loan Withdrawal' : 'Annual Living Expense Withdrawal',
+          })
+          monthEvents.push({
+            type: 'DEBT_INC',
+            amount: borrowAmount,
+            description: 'Borrowing increased for withdrawal',
+          })
+        }
+      }
+
+      // Solvency Check (inside Leverage)
+      if (effectiveCollateral > 0) {
+        const totalLiability = currentState.debtBalance + currentState.accruedInterest
+        const ltvDenominator =
+          leverage.ltvBasis === 'COLLATERAL' ? effectiveCollateral : totalAssetValue
+        currentState.ltv = ltvDenominator > 0 ? (totalLiability / ltvDenominator) * 100 : 9999
+      } else {
+        currentState.ltv = currentState.debtBalance + currentState.accruedInterest > 0 ? 9999 : 0
+      }
+
+      if (currentState.ltv > leverage.maxLtv) {
+        isBankrupt = true
+        bankruptcyDate = date
+        bankruptcyReason = 'LTV'
+        currentState.totalValue = 0
+        monthEvents.push({
+          type: 'INFO',
+          description: `!!! MARGIN CALL / LIQUIDATION (LTV: ${currentState.ltv.toFixed(1)}%) !!!`,
+        })
+      }
+    }
+
+    // 5. Negative Cash Bankruptcy
     if (!isBankrupt && currentState.cashBalance < NEGATIVE_CASH_LIMIT) {
       isBankrupt = true
       bankruptcyDate = date
+      bankruptcyReason = 'NEGATIVE_CASH'
       currentState.totalValue = 0
       monthEvents.push({
         type: 'INFO',
@@ -448,7 +454,7 @@ export const runBacktest = (
       })
     }
 
-    // 4. Update Net Value & Risk Metrics
+    // 6. Update Net Value & Risk Metrics
     if (!isBankrupt) {
       let totalAssetsVal = currentState.cashBalance
       for (const entry of assets) {
@@ -476,7 +482,7 @@ export const runBacktest = (
       }
     }
 
-    // 5. Record History
+    // 7. Record History
     history.push({
       ...currentState,
       shares: { ...currentState.shares },
@@ -528,6 +534,7 @@ export const runBacktest = (
     history,
     isBankrupt,
     bankruptcyDate,
+    bankruptcyReason,
     metrics,
   }
 }

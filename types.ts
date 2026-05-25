@@ -92,6 +92,7 @@ export interface SimulationResult {
   history: PortfolioState[]
   isBankrupt: boolean
   bankruptcyDate: string | null
+  bankruptcyReason: BankruptcyReason | null
   metrics: {
     finalBalance: number
     cagr: number
@@ -106,6 +107,8 @@ export interface SimulationResult {
     inflationRate: number
   }
 }
+
+export type BankruptcyReason = 'LTV' | 'NEGATIVE_CASH' | 'WITHDRAWAL'
 
 export type ProfileConfig = {
   initialCapital: number
