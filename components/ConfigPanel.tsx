@@ -978,6 +978,95 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             )}
           </div>
 
+          {/* Withdrawal Settings */}
+          <div className="p-4 bg-blue-50 rounded-xl border border-blue-100 space-y-4 mt-4">
+            <div className="flex items-center justify-between text-sm font-medium text-blue-800">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4" /> {t('withdrawal')}
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={profile.config.withdrawal?.enabled || false}
+                  onChange={(e) => updateWithdrawal(profile.id, { enabled: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+            </div>
+
+            {profile.config.withdrawal?.enabled && (
+              <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
+                {/* Row 1: Type & Value */}
+                <div>
+                  <label className="text-[10px] text-blue-700 uppercase font-bold mb-1 block">
+                    {t('withdrawalType')}
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      value={profile.config.withdrawal.type}
+                      onChange={(e) =>
+                        updateWithdrawal(profile.id, {
+                          type: e.target.value as ProfileConfig['withdrawal']['type'],
+                        })
+                      }
+                      className="bg-white border border-blue-200 rounded-lg px-2 text-sm outline-none w-28"
+                    >
+                      <option value="PERCENT">{t('withdrawalPercent')}</option>
+                      <option value="FIXED">{t('withdrawalFixed')}</option>
+                    </select>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={profile.config.withdrawal.value}
+                      onChange={(e) =>
+                        updateWithdrawal(profile.id, { value: Number(e.target.value) })
+                      }
+                      className="w-full px-2 py-2 border border-blue-200 rounded-lg outline-none"
+                    />
+                  </div>
+                  {profile.config.withdrawal.type === 'FIXED' && (
+                    <div className="mt-2">
+                      <label className="text-[10px] text-blue-700 uppercase font-bold mb-1 block">
+                        {t('withdrawalInflationRate')}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={profile.config.withdrawal.inflationRate || 0}
+                        onChange={(e) =>
+                          updateWithdrawal(profile.id, { inflationRate: Number(e.target.value) })
+                        }
+                        className="w-full px-2 py-2 border border-blue-200 rounded-lg outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Row 2: Sell Method */}
+                <div>
+                  <label className="text-[10px] text-blue-700 uppercase font-bold mb-1 block">
+                    {t('withdrawalSellMethod')}
+                  </label>
+                  <div className="flex bg-white rounded-lg border border-blue-200 p-1">
+                    <button
+                      className={`flex-1 py-1 text-xs font-medium rounded ${profile.config.withdrawal.sellMethod === 'PRIORITY' ? 'bg-blue-100 text-blue-800' : 'text-slate-500 hover:bg-slate-50'}`}
+                      onClick={() => updateWithdrawal(profile.id, { sellMethod: 'PRIORITY' })}
+                    >
+                      {t('sellPriority')}
+                    </button>
+                    <button
+                      className={`flex-1 py-1 text-xs font-medium rounded ${profile.config.withdrawal.sellMethod === 'PROPORTIONAL' ? 'bg-blue-100 text-blue-800' : 'text-slate-500 hover:bg-slate-50'}`}
+                      onClick={() => updateWithdrawal(profile.id, { sellMethod: 'PROPORTIONAL' })}
+                    >
+                      {t('sellProportional')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => {
               setEditingProfileId(null)
