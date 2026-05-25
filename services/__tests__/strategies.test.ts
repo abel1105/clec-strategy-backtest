@@ -3,8 +3,8 @@ import { strategyNoRebalance, strategyRebalance, strategySmart } from '../strate
 import { PortfolioState, MonthlyContext, AssetEntry, ProfileConfig } from '../../types'
 
 const testAssets: AssetEntry[] = [
-  { dataSourceId: 'A', targetWeight: 60, contributionWeight: 50, pledgeRatio: 0.7 },
-  { dataSourceId: 'B', targetWeight: 40, contributionWeight: 50, pledgeRatio: 0.5 },
+  { dataSourceId: 'A', targetWeight: 60, contributionWeight: 50, pledgeRatio: 0.7, withdrawalRatio: 0 },
+  { dataSourceId: 'B', targetWeight: 40, contributionWeight: 50, pledgeRatio: 0.5, withdrawalRatio: 0 },
 ]
 
 const testConfig: ProfileConfig = {
@@ -26,6 +26,7 @@ const testConfig: ProfileConfig = {
     interestType: 'CAPITALIZED',
     ltvBasis: 'TOTAL_ASSETS',
   },
+  withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
 }
 
 const ctx = (date: string, prices: Record<string, number>, monthIndex: number): MonthlyContext => ({
@@ -51,7 +52,7 @@ const empty = (): PortfolioState => ({
 
 describe('strategyNoRebalance', () => {
   it('initial allocation uses targetWeight', () => {
-    const state = empty()
+    const state = { ...empty(), cashBalance: testConfig.initialCapital }
     const result = strategyNoRebalance(state, ctx('2020-01-01', { A: 100, B: 100 }, 0), testAssets, testConfig)
 
     // A: 60% of 10000 / 100 = 60 shares

@@ -508,7 +508,19 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results }) =
           <AlertTriangle className="text-red-600 w-6 h-6 flex-shrink-0 mt-0.5" />
           <div>
             <h3 className="text-red-800 font-bold text-sm">{t('bankruptcyAlert')}</h3>
-            <p className="text-red-700 text-xs mt-1">{t('bankruptcyDesc')}</p>
+            <p className="text-red-700 text-xs mt-1">
+              {(() => {
+                const uniqueReasons = [...new Set(bankruptStrategies.map((s) => s.bankruptcyReason).filter(Boolean))]
+                const reasonKeyMap: Record<string, string> = {
+                  LTV: 'bankruptcyLtv',
+                  NEGATIVE_CASH: 'bankruptcyNegativeCash',
+                  WITHDRAWAL: 'bankruptcyWithdrawal',
+                  EXPENSE: 'bankruptcyExpense',
+                }
+                const key = uniqueReasons.length === 1 ? reasonKeyMap[uniqueReasons[0]!] : null
+                return key ? t(key) : t('bankruptcyDesc')
+              })()}
+            </p>
             <div className="flex flex-wrap gap-2 mt-2">
               {bankruptStrategies.map((s) => (
                 <span
@@ -971,6 +983,45 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results }) =
           ))}
         </div>
       )}
+
+      {/* Cash Flow Chart */}
+      {chartResults.filter((r) => !r.strategyName.toLowerCase().includes('benchmark')).map((res) => {
+        const yearlyData: Record<number, { year: number; deposit: number; withdrawal: number; borrowing: number }> = {}
+        for (const month of res.history) {
+          const year = parseInt(month.date.substring(0, 4))
+          if (!yearlyData[year]) yearlyData[year] = { year, deposit: 0, withdrawal: 0, borrowing: 0 }
+          for (const event of month.events) {
+            if (event.type === 'DEPOSIT' && event.amount) yearlyData[year].deposit += event.amount
+            if (event.type === 'WITHDRAW' && event.amount) yearlyData[year].withdrawal += event.amount
+            if (event.type === 'DEBT_INC' && event.amount) yearlyData[year].borrowing += event.amount
+          }
+        }
+        const chartData = Object.values(yearlyData).sort((a, b) => a.year - b.year)
+        const hasFlows = chartData.some((r) => r.deposit || r.withdrawal || r.borrowing)
+        if (!hasFlows) return null
+        return (
+          <div key={`cf-${res.strategyName}`} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: res.color }} />
+              <h3 className="font-bold text-slate-800 text-sm">{t('cashFlow')} — {res.strategyName}</h3>
+            </div>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="year" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={(v) => `$${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
+                  <Tooltip content={<CustomTooltip formatType="currency" />} />
+                  <Legend />
+                  <Bar dataKey="deposit" name={t('cf_deposit')} fill="#16a34a" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="withdrawal" name={t('cf_withdrawal')} fill="#dc2626" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="borrowing" name={t('cf_borrowing')} fill="#f97316" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )
+      })}
 
       {/* Performance Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

@@ -20,6 +20,7 @@ const createBaseConfig = (): ProfileConfig => ({
     interestType: 'CAPITALIZED',
     ltvBasis: 'TOTAL_ASSETS',
   },
+  withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
 })
 
 const generateAssetData = (months: number): AssetDataRow[] => {
@@ -45,7 +46,7 @@ describe('Negative Cash Bankruptcy', () => {
     const allAssetData: Record<string, AssetDataRow[]> = { 'test-asset': assetData }
     const multipliers: Record<string, number> = { 'test-asset': 1 }
     const assets: AssetEntry[] = [
-      { dataSourceId: 'test-asset', targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7 },
+      { dataSourceId: 'test-asset', targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7, withdrawalRatio: 0 },
     ]
     const result = runBacktest(allAssetData, multipliers, strategyNoRebalance, assets, config, 'Test')
 
@@ -69,7 +70,7 @@ describe('Negative Cash Bankruptcy', () => {
     const allAssetData: Record<string, AssetDataRow[]> = { 'test-asset': assetData }
     const multipliers: Record<string, number> = { 'test-asset': 1 }
     const assets: AssetEntry[] = [
-      { dataSourceId: 'test-asset', targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7 },
+      { dataSourceId: 'test-asset', targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7, withdrawalRatio: 0 },
     ]
     const result = runBacktest(allAssetData, multipliers, strategyNoRebalance, assets, config, 'Test')
 

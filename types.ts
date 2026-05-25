@@ -18,6 +18,7 @@ export interface AssetEntry {
   targetWeight: number
   contributionWeight: number
   pledgeRatio: number
+  withdrawalRatio: number
 }
 
 export interface MonthlyContext {
@@ -38,6 +39,14 @@ export interface LeverageConfig {
   inflationRate: number
   interestType: 'MONTHLY' | 'MATURITY' | 'CAPITALIZED'
   ltvBasis: 'TOTAL_ASSETS' | 'COLLATERAL'
+}
+
+export interface WithdrawalConfig {
+  enabled: boolean
+  type: 'PERCENT' | 'FIXED'
+  value: number
+  inflationRate: number
+  sellMethod: 'PRIORITY' | 'PROPORTIONAL'
 }
 
 export type StrategyType = 'NO_REBALANCE' | 'REBALANCE' | 'SMART' | 'FLEXIBLE_1' | 'FLEXIBLE_2'
@@ -83,6 +92,7 @@ export interface SimulationResult {
   history: PortfolioState[]
   isBankrupt: boolean
   bankruptcyDate: string | null
+  bankruptcyReason: BankruptcyReason | null
   metrics: {
     finalBalance: number
     cagr: number
@@ -98,6 +108,8 @@ export interface SimulationResult {
   }
 }
 
+export type BankruptcyReason = 'LTV' | 'NEGATIVE_CASH' | 'WITHDRAWAL'
+
 export type ProfileConfig = {
   initialCapital: number
   contributionAmount: number
@@ -107,6 +119,7 @@ export type ProfileConfig = {
   annualExpenseAmount?: number
   cashCoverageYears?: number
   leverage: LeverageConfig
+  withdrawal: WithdrawalConfig
 }
 
 export type StrategyFunction = (

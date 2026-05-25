@@ -18,8 +18,8 @@ const SOLVENCY_PROFILES: Profile[] = [
     color: '#ea580c',
     strategyType: 'SMART',
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.6 },
-      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0.6 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.6, withdrawalRatio: 0 },
+      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0.6, withdrawalRatio: 0 },
     ],
     config: {
       initialCapital: 1000000,
@@ -38,6 +38,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
       },
+      withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
     },
   },
   {
@@ -46,8 +47,8 @@ const SOLVENCY_PROFILES: Profile[] = [
     color: '#2563eb',
     strategyType: 'SMART',
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.7 },
-      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.7, withdrawalRatio: 0 },
+      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0, withdrawalRatio: 0 },
     ],
     config: {
       initialCapital: 1000000,
@@ -66,6 +67,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         interestType: 'CAPITALIZED',
         ltvBasis: 'COLLATERAL',
       },
+      withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
     },
   },
   {
@@ -74,8 +76,8 @@ const SOLVENCY_PROFILES: Profile[] = [
     color: '#475569',
     strategyType: 'SMART',
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.6 },
-      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0.6 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.6, withdrawalRatio: 0 },
+      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0.6, withdrawalRatio: 0 },
     ],
     config: {
       initialCapital: 1000000,
@@ -94,6 +96,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
       },
+      withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
     },
   },
   {
@@ -102,8 +105,8 @@ const SOLVENCY_PROFILES: Profile[] = [
     color: '#475569',
     strategyType: 'SMART',
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.7 },
-      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.7, withdrawalRatio: 0 },
+      { dataSourceId: 'builtin-qld', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0, withdrawalRatio: 0 },
     ],
     config: {
       initialCapital: 1000000,
@@ -122,6 +125,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         interestType: 'CAPITALIZED',
         ltvBasis: 'COLLATERAL',
       },
+      withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
     },
   },
   {
@@ -130,7 +134,7 @@ const SOLVENCY_PROFILES: Profile[] = [
     color: '#9333ea',
     strategyType: 'REBALANCE',
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 80, contributionWeight: 0, pledgeRatio: 0.7 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 80, contributionWeight: 0, pledgeRatio: 0.7, withdrawalRatio: 0 },
     ],
     config: {
       initialCapital: 1000000,
@@ -149,6 +153,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
       },
+      withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
     },
   },
   {
@@ -157,7 +162,7 @@ const SOLVENCY_PROFILES: Profile[] = [
     color: '#0891b2',
     strategyType: 'REBALANCE',
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 80, contributionWeight: 0, pledgeRatio: 0.7 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 80, contributionWeight: 0, pledgeRatio: 0.7, withdrawalRatio: 0 },
     ],
     config: {
       initialCapital: 1000000,
@@ -176,6 +181,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
       },
+      withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
     },
   },
 ]

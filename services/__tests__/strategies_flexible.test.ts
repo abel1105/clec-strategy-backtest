@@ -3,8 +3,8 @@ import { strategyFlexible2 } from '../strategies'
 import { PortfolioState, AssetEntry, ProfileConfig } from '../../types'
 
 const testAssets: AssetEntry[] = [
-  { dataSourceId: 'A', targetWeight: 60, contributionWeight: 50, pledgeRatio: 0.7 },
-  { dataSourceId: 'B', targetWeight: 40, contributionWeight: 50, pledgeRatio: 0.5 },
+  { dataSourceId: 'A', targetWeight: 60, contributionWeight: 50, pledgeRatio: 0.7, withdrawalRatio: 0 },
+  { dataSourceId: 'B', targetWeight: 40, contributionWeight: 50, pledgeRatio: 0.5, withdrawalRatio: 0 },
 ]
 
 const baseConfig: ProfileConfig = {
@@ -26,6 +26,7 @@ const baseConfig: ProfileConfig = {
     interestType: 'CAPITALIZED',
     ltvBasis: 'TOTAL_ASSETS',
   },
+  withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' },
 }
 
 const ctx = (
@@ -65,8 +66,8 @@ describe('Strategy Flexible 2 (Aggressive) — FLEXIBLE_2 regression', () => {
     // FLEXIBLE_2 during dot-com crash: QLD profit negative, cash below target
     // Assets: QQ (1x, index) and LL (2x, leveraged) — sorted by multiplier
     const bearAssets: AssetEntry[] = [
-      { dataSourceId: 'QQ', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.6 },
-      { dataSourceId: 'LL', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0.6 },
+      { dataSourceId: 'QQ', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.6, withdrawalRatio: 0 },
+      { dataSourceId: 'LL', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0.6, withdrawalRatio: 0 },
     ]
     const bearConfig: ProfileConfig = {
       ...baseConfig,

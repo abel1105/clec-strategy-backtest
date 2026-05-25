@@ -7,6 +7,7 @@ import {
   ProfileConfig,
   FinancialEvent,
   AssetDataRow,
+  BankruptcyReason,
 } from '../types'
 import {
   calculateCAGR,
@@ -48,17 +49,17 @@ export const runBacktest = (
 
   // Inner join on months: months present in ALL selected assets
   const monthSets = assetIds.map((id) => new Set(allAssetData[id].map((row) => row.date)))
-  const commonMonths: string[] = monthSets.length > 0
-    ? [...monthSets.reduce(
-        (acc, set) => new Set([...acc].filter((m) => set.has(m))),
-      )]
-    : []
+  const commonMonths: string[] =
+    monthSets.length > 0
+      ? [...monthSets.reduce((acc, set) => new Set([...acc].filter((m) => set.has(m))))]
+      : []
   commonMonths.sort()
 
   // Apply optional month window
-  const filteredMonths = startMonth || endMonth
-    ? commonMonths.filter((m) => (!startMonth || m >= startMonth) && (!endMonth || m <= endMonth))
-    : commonMonths
+  const filteredMonths =
+    startMonth || endMonth
+      ? commonMonths.filter((m) => (!startMonth || m >= startMonth) && (!endMonth || m <= endMonth))
+      : commonMonths
 
   if (filteredMonths.length === 0) {
     return {
@@ -69,6 +70,7 @@ export const runBacktest = (
       history: [],
       isBankrupt: false,
       bankruptcyDate: null,
+      bankruptcyReason: null,
       metrics: {
         finalBalance: 0,
         cagr: 0,
@@ -108,6 +110,7 @@ export const runBacktest = (
 
   let isBankrupt = false
   let bankruptcyDate: string | null = null
+  let bankruptcyReason: BankruptcyReason | null = null
 
   for (let monthIdx = 0; monthIdx < filteredMonths.length; monthIdx++) {
     const date = filteredMonths[monthIdx]
@@ -219,7 +222,113 @@ export const runBacktest = (
       }
     }
 
-    // 2. Execute Investment Strategy
+    // 2. Withdrawal Logic (before strategy — set aside spending first, then invest)
+    if (config.withdrawal?.enabled) {
+      const currentMonth = parseInt(date.substring(5, 7)) - 1
+      const isWithdrawalTiming = monthIdx === 0 || currentMonth === 0
+
+      if (isWithdrawalTiming) {
+        let totalAssetValue = currentState.cashBalance
+        for (const entry of assets) {
+          const id = entry.dataSourceId
+          const lowPrice = lows[id] || 0
+          totalAssetValue += (currentState.shares[id] || 0) * lowPrice
+        }
+
+        let withdrawalAmount = 0
+        if (config.withdrawal.type === 'PERCENT') {
+          withdrawalAmount = totalAssetValue * (config.withdrawal.value / 100)
+        } else {
+          const yearsPassed = Math.floor(monthIdx / 12)
+          const inflationFactor = Math.pow(
+            1 + (config.withdrawal.inflationRate || 0) / 100,
+            yearsPassed,
+          )
+          withdrawalAmount = config.withdrawal.value * inflationFactor
+        }
+
+        if (withdrawalAmount > 0) {
+          let remaining = withdrawalAmount
+
+          // Step 1: Deduct from cash
+          const cashDeducted = Math.min(currentState.cashBalance, remaining)
+          currentState.cashBalance -= cashDeducted
+          remaining -= cashDeducted
+
+          // Step 2: Sell assets if cash insufficient
+          if (remaining > 0) {
+            const sellableAssets = assets
+              .filter((a) => a.withdrawalRatio > 0)
+              .map((a) => ({
+                entry: a,
+                price: lows[a.dataSourceId] || 0,
+                shares: currentState.shares[a.dataSourceId] || 0,
+                maxSellValue:
+                  (currentState.shares[a.dataSourceId] || 0) *
+                  (lows[a.dataSourceId] || 0) *
+                  a.withdrawalRatio,
+              }))
+              .filter((a) => a.price > 0 && a.shares > 0 && a.maxSellValue > 0)
+
+            const totalSellable = sellableAssets.reduce((s, a) => s + a.maxSellValue, 0)
+
+            if (totalSellable < remaining) {
+              isBankrupt = true
+              bankruptcyDate = date
+              bankruptcyReason = 'WITHDRAWAL'
+              currentState.totalValue = 0
+              monthEvents.push({
+                type: 'INFO',
+                description: `!!! BANKRUPTCY: Withdrawal ${withdrawalAmount.toFixed(2)} exceeds available cash + sellable assets (${(totalSellable + withdrawalAmount - remaining).toFixed(2)}) !!!`,
+              })
+            } else {
+              if (config.withdrawal.sellMethod === 'PRIORITY') {
+                const sorted = [...sellableAssets].sort(
+                  (a, b) => b.entry.withdrawalRatio - a.entry.withdrawalRatio,
+                )
+                for (const asset of sorted) {
+                  if (remaining <= 0) break
+                  const sellValue = Math.min(asset.maxSellValue, remaining)
+                  const sharesToSell = sellValue / asset.price
+                  currentState.shares[asset.entry.dataSourceId] =
+                    (currentState.shares[asset.entry.dataSourceId] || 0) - sharesToSell
+                  remaining -= sellValue
+                  monthEvents.push({
+                    type: 'TRADE',
+                    amount: sellValue,
+                    description: `Sell ${sharesToSell.toFixed(4)} ${asset.entry.dataSourceId} @ ${asset.price.toFixed(2)} (Withdrawal)`,
+                  })
+                }
+              } else {
+                const originalRemaining = remaining
+                for (const asset of sellableAssets) {
+                  if (remaining <= 0) break
+                  const saleShare = originalRemaining * (asset.maxSellValue / totalSellable)
+                  const sharesToSell = Math.min(saleShare / asset.price, asset.shares)
+                  const actualSellValue = sharesToSell * asset.price
+                  currentState.shares[asset.entry.dataSourceId] =
+                    (currentState.shares[asset.entry.dataSourceId] || 0) - sharesToSell
+                  remaining -= actualSellValue
+                  monthEvents.push({
+                    type: 'TRADE',
+                    amount: actualSellValue,
+                    description: `Sell ${sharesToSell.toFixed(4)} ${asset.entry.dataSourceId} @ ${asset.price.toFixed(2)} (Withdrawal)`,
+                  })
+                }
+              }
+            }
+          }
+
+          monthEvents.push({
+            type: 'WITHDRAW',
+            amount: -Math.abs(withdrawalAmount),
+            description: monthIdx === 0 ? 'Initial Withdrawal' : 'Annual Withdrawal',
+          })
+        }
+      }
+    }
+
+    // 3. Execute Investment Strategy
     const cashBeforeStrat = currentState.cashBalance
     const sharesBeforeStrat = { ...currentState.shares }
 
@@ -265,7 +374,7 @@ export const runBacktest = (
       })
     }
 
-    // 3. Leverage / Pledging Logic
+    // 4. Leverage / Pledging Logic
     if (leverage.enabled) {
       const currentMonth = parseInt(date.substring(5, 7)) - 1
 
@@ -291,10 +400,7 @@ export const runBacktest = (
           borrowAmount = totalAssetValue * (leverage.withdrawValue / 100)
         } else {
           const yearsPassed = Math.floor(monthIdx / 12)
-          const inflationFactor = Math.pow(
-            1 + (leverage.inflationRate || 0) / 100,
-            yearsPassed,
-          )
+          const inflationFactor = Math.pow(1 + (leverage.inflationRate || 0) / 100, yearsPassed)
           borrowAmount = leverage.withdrawValue * inflationFactor
         }
 
@@ -304,9 +410,7 @@ export const runBacktest = (
             type: 'WITHDRAW',
             amount: -borrowAmount,
             description:
-              monthIdx === 0
-                ? 'Initial Loan Withdrawal'
-                : 'Annual Living Expense Withdrawal',
+              monthIdx === 0 ? 'Initial Loan Withdrawal' : 'Annual Living Expense Withdrawal',
           })
           monthEvents.push({
             type: 'DEBT_INC',
@@ -316,21 +420,20 @@ export const runBacktest = (
         }
       }
 
-      // Solvency Check
+      // Solvency Check (inside Leverage)
       if (effectiveCollateral > 0) {
         const totalLiability = currentState.debtBalance + currentState.accruedInterest
         const ltvDenominator =
           leverage.ltvBasis === 'COLLATERAL' ? effectiveCollateral : totalAssetValue
-        currentState.ltv =
-          ltvDenominator > 0 ? (totalLiability / ltvDenominator) * 100 : 9999
+        currentState.ltv = ltvDenominator > 0 ? (totalLiability / ltvDenominator) * 100 : 9999
       } else {
-        currentState.ltv =
-          currentState.debtBalance + currentState.accruedInterest > 0 ? 9999 : 0
+        currentState.ltv = currentState.debtBalance + currentState.accruedInterest > 0 ? 9999 : 0
       }
 
       if (currentState.ltv > leverage.maxLtv) {
         isBankrupt = true
         bankruptcyDate = date
+        bankruptcyReason = 'LTV'
         currentState.totalValue = 0
         monthEvents.push({
           type: 'INFO',
@@ -339,10 +442,11 @@ export const runBacktest = (
       }
     }
 
-    // Negative Cash Bankruptcy
+    // 5. Negative Cash Bankruptcy
     if (!isBankrupt && currentState.cashBalance < NEGATIVE_CASH_LIMIT) {
       isBankrupt = true
       bankruptcyDate = date
+      bankruptcyReason = 'NEGATIVE_CASH'
       currentState.totalValue = 0
       monthEvents.push({
         type: 'INFO',
@@ -350,7 +454,7 @@ export const runBacktest = (
       })
     }
 
-    // 4. Update Net Value & Risk Metrics
+    // 6. Update Net Value & Risk Metrics
     if (!isBankrupt) {
       let totalAssetsVal = currentState.cashBalance
       for (const entry of assets) {
@@ -378,7 +482,7 @@ export const runBacktest = (
       }
     }
 
-    // 5. Record History
+    // 7. Record History
     history.push({
       ...currentState,
       shares: { ...currentState.shares },
@@ -392,9 +496,7 @@ export const runBacktest = (
   const finalState = history[history.length - 1]
   const initialInv = config.initialCapital
 
-  const cagr = isBankrupt
-    ? -100
-    : calculateCAGR(initialInv, finalState.totalValue, years)
+  const cagr = isBankrupt ? -100 : calculateCAGR(initialInv, finalState.totalValue, years)
   const mdd = calculateMaxDrawdown(history)
   const irr = isBankrupt
     ? -100
@@ -418,10 +520,7 @@ export const runBacktest = (
       years,
     ),
     maxRecoveryMonths: calculateMaxRecoveryTime(history),
-    worstYearReturn: Math.min(
-      ...calculateAnnualReturns(history).map((r) => r.return),
-      0,
-    ),
+    worstYearReturn: Math.min(...calculateAnnualReturns(history).map((r) => r.return), 0),
     painIndex: calculateUlcerIndex(history),
     calmarRatio: mdd > 0 ? (isBankrupt ? -100 : irr / mdd) : 0,
     inflationRate: config.leverage.inflationRate,
@@ -435,6 +534,7 @@ export const runBacktest = (
     history,
     isBankrupt,
     bankruptcyDate,
+    bankruptcyReason,
     metrics,
   }
 }
