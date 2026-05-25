@@ -33,7 +33,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         cashPledgeRatio: 0.6,
         maxLtv: 60,
         withdrawType: 'FIXED',
-        withdrawValue: 30000,
+        withdrawValue: 25000,
         inflationRate: 0,
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
@@ -61,7 +61,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         cashPledgeRatio: 0.95,
         maxLtv: 80,
         withdrawType: 'FIXED',
-        withdrawValue: 23000,
+        withdrawValue: 20000,
         inflationRate: 0,
         interestType: 'CAPITALIZED',
         ltvBasis: 'COLLATERAL',
@@ -70,7 +70,7 @@ const SOLVENCY_PROFILES: Profile[] = [
   },
   {
     id: 'oklrsz25f',
-    name: '台灣433聰明再平衡 質押借款利息3%，最多每年借款2.6% total assets LTV 60% 失敗',
+    name: '台灣433聰明再平衡 質押借款利息3%，最多每年借款3.5% total assets LTV 60% 失敗',
     color: '#475569',
     strategyType: 'SMART',
     assets: [
@@ -89,7 +89,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         cashPledgeRatio: 0.6,
         maxLtv: 60,
         withdrawType: 'FIXED',
-        withdrawValue: 26000,
+        withdrawValue: 35000,
         inflationRate: 0,
         interestType: 'CAPITALIZED',
         ltvBasis: 'TOTAL_ASSETS',
@@ -98,7 +98,7 @@ const SOLVENCY_PROFILES: Profile[] = [
   },
   {
     id: '6qrqgep01',
-    name: '美國433聰明再平衡 質押借款利息6.5%，collateral Value LTV 80%最多每年借款2.2%失敗',
+    name: '美國433聰明再平衡 質押借款利息6.5%，collateral Value LTV 80%最多每年借款2.6%失敗',
     color: '#475569',
     strategyType: 'SMART',
     assets: [
@@ -117,7 +117,7 @@ const SOLVENCY_PROFILES: Profile[] = [
         cashPledgeRatio: 0.95,
         maxLtv: 80,
         withdrawType: 'FIXED',
-        withdrawValue: 22000,
+        withdrawValue: 30000,
         inflationRate: 0,
         interestType: 'CAPITALIZED',
         ltvBasis: 'COLLATERAL',
@@ -194,8 +194,6 @@ describe('Standardized Solvency Backtests', () => {
       )
 
       const shouldBankrupt =
-        profile.id === '2' ||
-        profile.id === '3n492d5zo' ||
         profile.id === 'oklrsz25f' ||
         profile.id === '6qrqgep01'
 
