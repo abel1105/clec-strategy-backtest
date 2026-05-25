@@ -223,7 +223,8 @@ const dictionaries: Record<Language, Translations> = {
     dataSourceName: 'Name',
     dataSourceNamePlaceholder: 'Asset name (e.g. SPY)',
     multiplierPlaceholder: 'Multiplier (1, 2, 3...)',
-    fileFormatHint: 'Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices one per line',
+    fileFormatHint:
+      'Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices one per line',
     saveSource: 'Save Source',
     indexAsset: 'Index Asset',
     leveragedAsset: 'Leveraged Asset',
@@ -237,7 +238,7 @@ const dictionaries: Record<Language, Translations> = {
       'Experimental capital risk exposure and liquidity signals. Not a real-time trading signal. Not investment advice.',
   },
   fr: {
-    appTitle: 'Outil d\'investissement',
+    appTitle: "Outil d'investissement",
     profiles: 'Profils',
     addProfile: 'Ajouter un profil',
     autoGenerate: 'Générer Combinaisons',
@@ -302,7 +303,7 @@ const dictionaries: Record<Language, Translations> = {
       '*Collatéral = Somme(Actif * Ratio). Faillite si Dette > LTV Max du Collatéral.',
     zeroPledgeWarning:
       '⚠ Tous les actifs ont un ratio de nantissement de 0% — aucun collatéral pour emprunter. Définissez un ratio > 0 pour activer le levier.',
-    targetWeightOver100: '⚠ Le poids cible total dépasse 100%. Réduisez certains poids d\'actifs.',
+    targetWeightOver100: "⚠ Le poids cible total dépasse 100%. Réduisez certains poids d'actifs.",
     config_expenseAmount: 'Montant des dépenses annuelles ($)',
     spending_buffer: 'Dépenses et réserve',
     config_coverageYears: 'Couverture Cash (Années)',
@@ -421,7 +422,7 @@ const dictionaries: Record<Language, Translations> = {
     done: 'Terminé',
     dataRange: 'Plage de données',
     appDesc:
-      'Simule diverses stratégies d\'investissement avec des sources de données configurables. Créez plusieurs profils pour comparer différentes allocations.',
+      "Simule diverses stratégies d'investissement avec des sources de données configurables. Créez plusieurs profils pour comparer différentes allocations.",
     exportData: 'Exporter tout',
     importData: 'Importer tout',
     downloadReport: 'Télécharger le rapport professionnel',
@@ -452,7 +453,8 @@ const dictionaries: Record<Language, Translations> = {
     dataSourceName: 'Nom',
     dataSourceNamePlaceholder: "Nom de l'actif (ex. SPY)",
     multiplierPlaceholder: 'Multiplicateur (1, 2, 3...)',
-    fileFormatHint: 'Format : dates (AAAAMMJJ) ligne 1, prix ligne 2 ; ou dates puis prix une par ligne',
+    fileFormatHint:
+      'Format : dates (AAAAMMJJ) ligne 1, prix ligne 2 ; ou dates puis prix une par ligne',
     saveSource: 'Enregistrer la source',
     indexAsset: 'Actif indiciel',
     leveragedAsset: 'Actif à effet de levier',

@@ -48,17 +48,17 @@ export const runBacktest = (
 
   // Inner join on months: months present in ALL selected assets
   const monthSets = assetIds.map((id) => new Set(allAssetData[id].map((row) => row.date)))
-  const commonMonths: string[] = monthSets.length > 0
-    ? [...monthSets.reduce(
-        (acc, set) => new Set([...acc].filter((m) => set.has(m))),
-      )]
-    : []
+  const commonMonths: string[] =
+    monthSets.length > 0
+      ? [...monthSets.reduce((acc, set) => new Set([...acc].filter((m) => set.has(m))))]
+      : []
   commonMonths.sort()
 
   // Apply optional month window
-  const filteredMonths = startMonth || endMonth
-    ? commonMonths.filter((m) => (!startMonth || m >= startMonth) && (!endMonth || m <= endMonth))
-    : commonMonths
+  const filteredMonths =
+    startMonth || endMonth
+      ? commonMonths.filter((m) => (!startMonth || m >= startMonth) && (!endMonth || m <= endMonth))
+      : commonMonths
 
   if (filteredMonths.length === 0) {
     return {
@@ -291,10 +291,7 @@ export const runBacktest = (
           borrowAmount = totalAssetValue * (leverage.withdrawValue / 100)
         } else {
           const yearsPassed = Math.floor(monthIdx / 12)
-          const inflationFactor = Math.pow(
-            1 + (leverage.inflationRate || 0) / 100,
-            yearsPassed,
-          )
+          const inflationFactor = Math.pow(1 + (leverage.inflationRate || 0) / 100, yearsPassed)
           borrowAmount = leverage.withdrawValue * inflationFactor
         }
 
@@ -304,9 +301,7 @@ export const runBacktest = (
             type: 'WITHDRAW',
             amount: -borrowAmount,
             description:
-              monthIdx === 0
-                ? 'Initial Loan Withdrawal'
-                : 'Annual Living Expense Withdrawal',
+              monthIdx === 0 ? 'Initial Loan Withdrawal' : 'Annual Living Expense Withdrawal',
           })
           monthEvents.push({
             type: 'DEBT_INC',
@@ -321,11 +316,9 @@ export const runBacktest = (
         const totalLiability = currentState.debtBalance + currentState.accruedInterest
         const ltvDenominator =
           leverage.ltvBasis === 'COLLATERAL' ? effectiveCollateral : totalAssetValue
-        currentState.ltv =
-          ltvDenominator > 0 ? (totalLiability / ltvDenominator) * 100 : 9999
+        currentState.ltv = ltvDenominator > 0 ? (totalLiability / ltvDenominator) * 100 : 9999
       } else {
-        currentState.ltv =
-          currentState.debtBalance + currentState.accruedInterest > 0 ? 9999 : 0
+        currentState.ltv = currentState.debtBalance + currentState.accruedInterest > 0 ? 9999 : 0
       }
 
       if (currentState.ltv > leverage.maxLtv) {
@@ -380,7 +373,10 @@ export const runBacktest = (
                 entry: a,
                 price: lows[a.dataSourceId] || 0,
                 shares: currentState.shares[a.dataSourceId] || 0,
-                maxSellValue: (currentState.shares[a.dataSourceId] || 0) * (lows[a.dataSourceId] || 0) * a.withdrawalRatio,
+                maxSellValue:
+                  (currentState.shares[a.dataSourceId] || 0) *
+                  (lows[a.dataSourceId] || 0) *
+                  a.withdrawalRatio,
               }))
               .filter((a) => a.price > 0 && a.shares > 0 && a.maxSellValue > 0)
 
@@ -435,8 +431,7 @@ export const runBacktest = (
           monthEvents.push({
             type: 'WITHDRAW',
             amount: -Math.abs(withdrawalAmount),
-            description:
-              monthIdx === 0 ? 'Initial Withdrawal' : 'Annual Withdrawal',
+            description: monthIdx === 0 ? 'Initial Withdrawal' : 'Annual Withdrawal',
           })
         }
       }
@@ -495,9 +490,7 @@ export const runBacktest = (
   const finalState = history[history.length - 1]
   const initialInv = config.initialCapital
 
-  const cagr = isBankrupt
-    ? -100
-    : calculateCAGR(initialInv, finalState.totalValue, years)
+  const cagr = isBankrupt ? -100 : calculateCAGR(initialInv, finalState.totalValue, years)
   const mdd = calculateMaxDrawdown(history)
   const irr = isBankrupt
     ? -100
@@ -521,10 +514,7 @@ export const runBacktest = (
       years,
     ),
     maxRecoveryMonths: calculateMaxRecoveryTime(history),
-    worstYearReturn: Math.min(
-      ...calculateAnnualReturns(history).map((r) => r.return),
-      0,
-    ),
+    worstYearReturn: Math.min(...calculateAnnualReturns(history).map((r) => r.return), 0),
     painIndex: calculateUlcerIndex(history),
     calmarRatio: mdd > 0 ? (isBankrupt ? -100 : irr / mdd) : 0,
     inflationRate: config.leverage.inflationRate,

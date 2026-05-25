@@ -264,10 +264,26 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const generatedProfiles: Profile[] = []
 
     const COLORS = [
-      '#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea',
-      '#0891b2', '#be123c', '#4d7c0f', '#854d0e', '#3730a3',
-      '#0f766e', '#9f1239', '#15803d', '#a16207', '#5b21b6',
-      '#0e7490', '#be185d', '#3f6212', '#713f12', '#4338ca',
+      '#2563eb',
+      '#dc2626',
+      '#16a34a',
+      '#d97706',
+      '#9333ea',
+      '#0891b2',
+      '#be123c',
+      '#4d7c0f',
+      '#854d0e',
+      '#3730a3',
+      '#0f766e',
+      '#9f1239',
+      '#15803d',
+      '#a16207',
+      '#5b21b6',
+      '#0e7490',
+      '#be185d',
+      '#3f6212',
+      '#713f12',
+      '#4338ca',
     ]
     let colorIdx = 0
     const getNextColor = () => COLORS[colorIdx++ % COLORS.length]
@@ -433,7 +449,10 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
     const addAsset = (dataSourceId: string) => {
       updateProfile(profile.id, {
-        assets: [...profile.assets, { dataSourceId, targetWeight: 0, contributionWeight: 0, pledgeRatio: 0.7 }],
+        assets: [
+          ...profile.assets,
+          { dataSourceId, targetWeight: 0, contributionWeight: 0, pledgeRatio: 0.7 },
+        ],
       })
     }
 
@@ -492,8 +511,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               ))}
             </div>
           </div>
-
-
 
           {/* Strategy */}
           <div className="space-y-2">
@@ -667,7 +684,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
           {/* Asset List */}
           <div className="space-y-3">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase">{t('assets') || 'Assets'}</h3>
+            <h3 className="text-xs font-semibold text-slate-500 uppercase">
+              {t('assets') || 'Assets'}
+            </h3>
             {profile.assets.map((asset, i) => {
               const source = dataSources.find((s) => s.id === asset.dataSourceId)
               return (
@@ -685,70 +704,108 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                   <div>
-                     <div className="flex justify-between items-center mb-1">
-                       <span className="text-gray-600">{t('targetWeight') || 'Target Weight'}</span>
-                       <input
-                         type="number"
-                         min={0}
-                         max={100}
-                         value={asset.targetWeight}
-                         onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) || 0 })}
-                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                       />
-                     </div>
-                     <input type="range" min={0} max={100} value={asset.targetWeight}
-                       onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) })}
-                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-                   </div>
-                   <div>
-                     <div className="flex justify-between items-center mb-1">
-                       <span className="text-gray-600">{t('contributionWeight') || 'Contribution Weight'}</span>
-                       <input
-                         type="number"
-                         min={0}
-                         max={100}
-                         value={asset.contributionWeight}
-                         onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) || 0 })}
-                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                       />
-                     </div>
-                     <input type="range" min={0} max={100} value={asset.contributionWeight}
-                       onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) })}
-                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-                   </div>
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-gray-600">{t('pledgeRatio') || 'Pledge Ratio'}</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={(asset.pledgeRatio * 100).toFixed(0)}
-                          onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 || 0 })}
-                          className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                        />
-                      </div>
-                      <input type="range" min={0} max={100} value={asset.pledgeRatio * 100}
-                        onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 })}
-                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-yellow-600" />
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-gray-600">{t('targetWeight') || 'Target Weight'}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={asset.targetWeight}
+                        onChange={(e) =>
+                          updateAsset(i, { targetWeight: Number(e.target.value) || 0 })
+                        }
+                        className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-gray-600">{t('withdrawalRatio') || 'Withdrawal Ratio'}</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={(asset.withdrawalRatio * 100).toFixed(0)}
-                          onChange={(e) => updateAsset(i, { withdrawalRatio: Number(e.target.value) / 100 || 0 })}
-                          className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <input type="range" min={0} max={100} value={asset.withdrawalRatio * 100}
-                        onChange={(e) => updateAsset(i, { withdrawalRatio: Number(e.target.value) / 100 })}
-                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={asset.targetWeight}
+                      onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) })}
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-gray-600">
+                        {t('contributionWeight') || 'Contribution Weight'}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={asset.contributionWeight}
+                        onChange={(e) =>
+                          updateAsset(i, { contributionWeight: Number(e.target.value) || 0 })
+                        }
+                        className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={asset.contributionWeight}
+                      onChange={(e) =>
+                        updateAsset(i, { contributionWeight: Number(e.target.value) })
+                      }
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-gray-600">{t('pledgeRatio') || 'Pledge Ratio'}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={(asset.pledgeRatio * 100).toFixed(0)}
+                        onChange={(e) =>
+                          updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 || 0 })
+                        }
+                        className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      />
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={asset.pledgeRatio * 100}
+                      onChange={(e) =>
+                        updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 })
+                      }
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-yellow-600"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-gray-600">
+                        {t('withdrawalRatio') || 'Withdrawal Ratio'}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={(asset.withdrawalRatio * 100).toFixed(0)}
+                        onChange={(e) =>
+                          updateAsset(i, { withdrawalRatio: Number(e.target.value) / 100 || 0 })
+                        }
+                        className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={asset.withdrawalRatio * 100}
+                      onChange={(e) =>
+                        updateAsset(i, { withdrawalRatio: Number(e.target.value) / 100 })
+                      }
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                  </div>
                 </div>
               )
             })}
@@ -757,14 +814,18 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             <div className="flex gap-2">
               <select
                 value=""
-                onChange={(e) => { if (e.target.value) addAsset(e.target.value) }}
+                onChange={(e) => {
+                  if (e.target.value) addAsset(e.target.value)
+                }}
                 className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">+ {t('addAsset') || 'Add Asset'}</option>
                 {dataSources
                   .filter((ds) => !profile.assets.some((a) => a.dataSourceId === ds.id))
                   .map((ds) => (
-                    <option key={ds.id} value={ds.id}>{ds.name} ({ds.multiplier}x)</option>
+                    <option key={ds.id} value={ds.id}>
+                      {ds.name} ({ds.multiplier}x)
+                    </option>
                   ))}
               </select>
             </div>
@@ -772,7 +833,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             {/* Cash display */}
             <div className="flex justify-between text-xs text-slate-400 pt-1 border-t border-slate-100">
               <span>{t('cash')}</span>
-              <span className="font-bold">{Math.max(0, 100 - profile.assets.reduce((s, a) => s + a.targetWeight, 0))}%</span>
+              <span className="font-bold">
+                {Math.max(0, 100 - profile.assets.reduce((s, a) => s + a.targetWeight, 0))}%
+              </span>
             </div>
             {profile.assets.reduce((s, a) => s + a.targetWeight, 0) > 100 && (
               <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
@@ -801,12 +864,13 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             {profile.config.leverage?.enabled && (
               <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
-                {profile.assets.every((a) => a.pledgeRatio === 0) && (profile.config.leverage.cashPledgeRatio ?? 0.95) === 0 && (
-                  <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
-                    <AlertOctagon className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-                    <p className="text-[11px] text-red-700">{t('zeroPledgeWarning')}</p>
-                  </div>
-                )}
+                {profile.assets.every((a) => a.pledgeRatio === 0) &&
+                  (profile.config.leverage.cashPledgeRatio ?? 0.95) === 0 && (
+                    <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                      <AlertOctagon className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-red-700">{t('zeroPledgeWarning')}</p>
+                    </div>
+                  )}
                 {/* Row 1: Interest Rate & Max LTV */}
                 <div className="grid grid-cols-1 gap-3">
                   <div>
@@ -1114,25 +1178,26 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         {dataSources.filter((ds) => !ds.id.startsWith('builtin-')).length === 0 && (
           <p className="text-xs text-slate-400 italic">{t('noDataSources')}</p>
         )}
-        {dataSources.filter((ds) => !ds.id.startsWith('builtin-')).map((ds) => (
-          <div
-            key={ds.id}
-            className="flex items-center justify-between p-2 border rounded mb-1"
-          >
-            <div>
-              <span className="font-medium text-sm">{ds.name}</span>
-              <span className="text-xs text-gray-500 ml-2">{ds.multiplier}x</span>
-              <span className="text-xs text-gray-400 ml-2">{ds.data[0]?.date} → {ds.data[ds.data.length - 1]?.date}</span>
+        {dataSources
+          .filter((ds) => !ds.id.startsWith('builtin-'))
+          .map((ds) => (
+            <div key={ds.id} className="flex items-center justify-between p-2 border rounded mb-1">
+              <div>
+                <span className="font-medium text-sm">{ds.name}</span>
+                <span className="text-xs text-gray-500 ml-2">{ds.multiplier}x</span>
+                <span className="text-xs text-gray-400 ml-2">
+                  {ds.data[0]?.date} → {ds.data[ds.data.length - 1]?.date}
+                </span>
+              </div>
+              <button
+                onClick={() => onDeleteSource(ds.id)}
+                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                title={t('deleteProfile')}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <button
-              onClick={() => onDeleteSource(ds.id)}
-              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-              title={t('deleteProfile')}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
+          ))}
 
         {/* Add New Data Source */}
         <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
@@ -1210,27 +1275,38 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           <div
             key={profile.id}
             data-testid="profile-card"
-            onClick={() => { if (profile.enabled !== false) setEditingProfileId(profile.id) }}
+            onClick={() => {
+              if (profile.enabled !== false) setEditingProfileId(profile.id)
+            }}
             className={`group relative rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer bg-white overflow-hidden ${profile.enabled === false ? 'opacity-50' : ''}`}
             style={{ borderLeft: `4px solid ${profile.color}` }}
           >
             {/* Header: Name and Management Actions */}
             <div className="flex justify-between items-center px-4 pt-3 mb-1">
               <div className="flex items-center gap-2 overflow-hidden">
-                <label className="relative inline-flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                <label
+                  className="relative inline-flex items-center cursor-pointer"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <input
                     type="checkbox"
                     checked={profile.enabled !== false}
                     onChange={(e) => {
                       onProfilesChange((prev: Profile[]) =>
-                        prev.map((p) => p.id === profile.id ? { ...p, enabled: e.target.checked } : p),
+                        prev.map((p) =>
+                          p.id === profile.id ? { ...p, enabled: e.target.checked } : p,
+                        ),
                       )
                     }}
                     className="sr-only peer"
                   />
                   <div className="w-7 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
                 </label>
-                <span className={`font-bold text-sm truncate ${profile.enabled === false ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{profile.name}</span>
+                <span
+                  className={`font-bold text-sm truncate ${profile.enabled === false ? 'text-slate-400 line-through' : 'text-slate-800'}`}
+                >
+                  {profile.name}
+                </span>
               </div>
               <div className="flex gap-0.5">
                 <button
@@ -1263,8 +1339,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                 {profile.assets.map((asset) => {
                   const source = dataSources.find((s) => s.id === asset.dataSourceId)
                   return (
-                    <span key={asset.dataSourceId} className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
-                      {source?.name || asset.dataSourceId}: {asset.targetWeight}% / {asset.contributionWeight}%
+                    <span
+                      key={asset.dataSourceId}
+                      className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100"
+                    >
+                      {source?.name || asset.dataSourceId}: {asset.targetWeight}% /{' '}
+                      {asset.contributionWeight}%
                     </span>
                   )
                 })}
