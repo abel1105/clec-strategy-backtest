@@ -26,20 +26,20 @@ const CREATE_DEFAULT_PROFILES = (): Profile[] => [
     strategyType: 'NO_REBALANCE' as StrategyType,
     enabled: true,
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 50, contributionWeight: 100, pledgeRatio: 0.7 },
-      { dataSourceId: 'builtin-qld', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.0 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 50, contributionWeight: 100, pledgeRatio: 0.7, withdrawalRatio: 0 },
+      { dataSourceId: 'builtin-qld', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.0, withdrawalRatio: 0 },
     ],
-    config: { initialCapital: 1000000, contributionAmount: 5000, contributionIntervalMonths: 1, yearlyContributionMonth: 12, cashYieldAnnual: 2.0, annualExpenseAmount: 30000, cashCoverageYears: 15, leverage: { enabled: false, interestRate: 5, cashPledgeRatio: 0.95, maxLtv: 100, withdrawType: 'PERCENT', withdrawValue: 2, inflationRate: 0, interestType: 'CAPITALIZED', ltvBasis: 'TOTAL_ASSETS' } },
+    config: { initialCapital: 1000000, contributionAmount: 5000, contributionIntervalMonths: 1, yearlyContributionMonth: 12, cashYieldAnnual: 2.0, annualExpenseAmount: 30000, cashCoverageYears: 15, leverage: { enabled: false, interestRate: 5, cashPledgeRatio: 0.95, maxLtv: 100, withdrawType: 'PERCENT', withdrawValue: 2, inflationRate: 0, interestType: 'CAPITALIZED', ltvBasis: 'TOTAL_ASSETS' }, withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' } },
   },
   {
     id: '2', name: 'Aggressive', color: '#ea580c',
     strategyType: 'SMART' as StrategyType,
     enabled: true,
     assets: [
-      { dataSourceId: 'builtin-qqq', targetWeight: 10, contributionWeight: 10, pledgeRatio: 0.7 },
-      { dataSourceId: 'builtin-qld', targetWeight: 80, contributionWeight: 80, pledgeRatio: 0.0 },
+      { dataSourceId: 'builtin-qqq', targetWeight: 10, contributionWeight: 10, pledgeRatio: 0.7, withdrawalRatio: 0 },
+      { dataSourceId: 'builtin-qld', targetWeight: 80, contributionWeight: 80, pledgeRatio: 0.0, withdrawalRatio: 0 },
     ],
-    config: { initialCapital: 1000000, contributionAmount: 5000, contributionIntervalMonths: 1, yearlyContributionMonth: 12, cashYieldAnnual: 2.0, annualExpenseAmount: 30000, cashCoverageYears: 15, leverage: { enabled: false, interestRate: 5, cashPledgeRatio: 0.95, maxLtv: 100, withdrawType: 'PERCENT', withdrawValue: 2, inflationRate: 0, interestType: 'CAPITALIZED', ltvBasis: 'TOTAL_ASSETS' } },
+    config: { initialCapital: 1000000, contributionAmount: 5000, contributionIntervalMonths: 1, yearlyContributionMonth: 12, cashYieldAnnual: 2.0, annualExpenseAmount: 30000, cashCoverageYears: 15, leverage: { enabled: false, interestRate: 5, cashPledgeRatio: 0.95, maxLtv: 100, withdrawType: 'PERCENT', withdrawValue: 2, inflationRate: 0, interestType: 'CAPITALIZED', ltvBasis: 'TOTAL_ASSETS' }, withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' } },
   },
 ]
 
@@ -51,10 +51,10 @@ const migrateProfile = (p: any): Profile => {
     strategyType: p.strategyType || 'NO_REBALANCE',
     enabled: p.enabled !== false,
     assets: [
-      { dataSourceId: p.dataSourceId || 'builtin-qqq', targetWeight: c.indexWeight ?? 50, contributionWeight: c.contributionIndexWeight ?? 50, pledgeRatio: c.leverage?.indexPledgeRatio ?? 0.7 },
-      { dataSourceId: p.dataSourceId ? `custom-${p.dataSourceId}-2` : 'builtin-qld', targetWeight: c.leveragedWeight ?? 40, contributionWeight: c.contributionLeveragedWeight ?? 40, pledgeRatio: c.leverage?.leveragedPledgeRatio ?? 0 },
+      { dataSourceId: p.dataSourceId || 'builtin-qqq', targetWeight: c.indexWeight ?? 50, contributionWeight: c.contributionIndexWeight ?? 50, pledgeRatio: c.leverage?.indexPledgeRatio ?? 0.7, withdrawalRatio: 0 },
+      { dataSourceId: p.dataSourceId ? `custom-${p.dataSourceId}-2` : 'builtin-qld', targetWeight: c.leveragedWeight ?? 40, contributionWeight: c.contributionLeveragedWeight ?? 40, pledgeRatio: c.leverage?.leveragedPledgeRatio ?? 0, withdrawalRatio: 0 },
     ],
-    config: { initialCapital: c.initialCapital ?? 1000000, contributionAmount: c.contributionAmount ?? 5000, contributionIntervalMonths: c.contributionIntervalMonths ?? 1, yearlyContributionMonth: c.yearlyContributionMonth ?? 12, cashYieldAnnual: c.cashYieldAnnual ?? 2, annualExpenseAmount: c.annualExpenseAmount, cashCoverageYears: c.cashCoverageYears, leverage: { ...c.leverage, enabled: c.leverage?.enabled ?? false, interestRate: c.leverage?.interestRate ?? 5, cashPledgeRatio: c.leverage?.cashPledgeRatio ?? 0.95, maxLtv: c.leverage?.maxLtv ?? 100, withdrawType: c.leverage?.withdrawType ?? 'PERCENT', withdrawValue: c.leverage?.withdrawValue ?? 0, inflationRate: c.leverage?.inflationRate ?? 0, interestType: c.leverage?.interestType ?? 'CAPITALIZED', ltvBasis: c.leverage?.ltvBasis ?? 'TOTAL_ASSETS' } },
+    config: { initialCapital: c.initialCapital ?? 1000000, contributionAmount: c.contributionAmount ?? 5000, contributionIntervalMonths: c.contributionIntervalMonths ?? 1, yearlyContributionMonth: c.yearlyContributionMonth ?? 12, cashYieldAnnual: c.cashYieldAnnual ?? 2, annualExpenseAmount: c.annualExpenseAmount, cashCoverageYears: c.cashCoverageYears, leverage: { ...c.leverage, enabled: c.leverage?.enabled ?? false, interestRate: c.leverage?.interestRate ?? 5, cashPledgeRatio: c.leverage?.cashPledgeRatio ?? 0.95, maxLtv: c.leverage?.maxLtv ?? 100, withdrawType: c.leverage?.withdrawType ?? 'PERCENT', withdrawValue: c.leverage?.withdrawValue ?? 0, inflationRate: c.leverage?.inflationRate ?? 0, interestType: c.leverage?.interestType ?? 'CAPITALIZED', ltvBasis: c.leverage?.ltvBasis ?? 'TOTAL_ASSETS' }, withdrawal: { enabled: false, type: 'PERCENT', value: 0, inflationRate: 0, sellMethod: 'PROPORTIONAL' } },
   }
 }
 

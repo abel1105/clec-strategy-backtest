@@ -328,6 +328,7 @@ describe('simulationEngine - N-Asset', () => {
           targetWeight: 100,
           contributionWeight: 100,
           pledgeRatio: 0.5,
+          withdrawalRatio: 0,
         },
       ]
       const data = genData(1)
