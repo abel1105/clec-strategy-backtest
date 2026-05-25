@@ -339,6 +339,109 @@ export const runBacktest = (
       }
     }
 
+    // 3b. Withdrawal Logic (independent from leverage)
+    if (config.withdrawal?.enabled) {
+      const currentMonth = parseInt(date.substring(5, 7)) - 1
+      const isWithdrawalTiming = monthIdx === 0 || currentMonth === 0
+
+      if (isWithdrawalTiming) {
+        let totalAssetValue = currentState.cashBalance
+        for (const entry of assets) {
+          const id = entry.dataSourceId
+          const lowPrice = lows[id] || 0
+          totalAssetValue += (currentState.shares[id] || 0) * lowPrice
+        }
+
+        let withdrawalAmount = 0
+        if (config.withdrawal.type === 'PERCENT') {
+          withdrawalAmount = totalAssetValue * (config.withdrawal.value / 100)
+        } else {
+          const yearsPassed = Math.floor(monthIdx / 12)
+          const inflationFactor = Math.pow(
+            1 + (config.withdrawal.inflationRate || 0) / 100,
+            yearsPassed,
+          )
+          withdrawalAmount = config.withdrawal.value * inflationFactor
+        }
+
+        if (withdrawalAmount > 0) {
+          let remaining = withdrawalAmount
+
+          // Step 1: Deduct from cash
+          const cashDeducted = Math.min(currentState.cashBalance, remaining)
+          currentState.cashBalance -= cashDeducted
+          remaining -= cashDeducted
+
+          // Step 2: Sell assets if cash insufficient
+          if (remaining > 0) {
+            const sellableAssets = assets
+              .filter((a) => a.withdrawalRatio > 0)
+              .map((a) => ({
+                entry: a,
+                price: lows[a.dataSourceId] || 0,
+                shares: currentState.shares[a.dataSourceId] || 0,
+                maxSellValue: (currentState.shares[a.dataSourceId] || 0) * (lows[a.dataSourceId] || 0) * a.withdrawalRatio,
+              }))
+              .filter((a) => a.price > 0 && a.shares > 0 && a.maxSellValue > 0)
+
+            const totalSellable = sellableAssets.reduce((s, a) => s + a.maxSellValue, 0)
+
+            if (totalSellable < remaining) {
+              isBankrupt = true
+              bankruptcyDate = date
+              currentState.totalValue = 0
+              monthEvents.push({
+                type: 'INFO',
+                description: `!!! BANKRUPTCY: Withdrawal ${withdrawalAmount.toFixed(2)} exceeds available cash + sellable assets (${(totalSellable + withdrawalAmount - remaining).toFixed(2)}) !!!`,
+              })
+            } else {
+              if (config.withdrawal.sellMethod === 'PRIORITY') {
+                const sorted = [...sellableAssets].sort(
+                  (a, b) => b.entry.withdrawalRatio - a.entry.withdrawalRatio,
+                )
+                for (const asset of sorted) {
+                  if (remaining <= 0) break
+                  const sellValue = Math.min(asset.maxSellValue, remaining)
+                  const sharesToSell = sellValue / asset.price
+                  currentState.shares[asset.entry.dataSourceId] =
+                    (currentState.shares[asset.entry.dataSourceId] || 0) - sharesToSell
+                  remaining -= sellValue
+                  monthEvents.push({
+                    type: 'TRADE',
+                    amount: sellValue,
+                    description: `Sell ${sharesToSell.toFixed(4)} ${asset.entry.dataSourceId} @ ${asset.price.toFixed(2)} (Withdrawal)`,
+                  })
+                }
+              } else {
+                const originalRemaining = remaining
+                for (const asset of sellableAssets) {
+                  if (remaining <= 0) break
+                  const saleShare = originalRemaining * (asset.maxSellValue / totalSellable)
+                  const sharesToSell = Math.min(saleShare / asset.price, asset.shares)
+                  const actualSellValue = sharesToSell * asset.price
+                  currentState.shares[asset.entry.dataSourceId] =
+                    (currentState.shares[asset.entry.dataSourceId] || 0) - sharesToSell
+                  remaining -= actualSellValue
+                  monthEvents.push({
+                    type: 'TRADE',
+                    amount: actualSellValue,
+                    description: `Sell ${sharesToSell.toFixed(4)} ${asset.entry.dataSourceId} @ ${asset.price.toFixed(2)} (Withdrawal)`,
+                  })
+                }
+              }
+            }
+          }
+
+          monthEvents.push({
+            type: 'WITHDRAW',
+            amount: -Math.abs(withdrawalAmount),
+            description:
+              monthIdx === 0 ? 'Initial Withdrawal' : 'Annual Withdrawal',
+          })
+        }
+      }
+    }
+
     // Negative Cash Bankruptcy
     if (!isBankrupt && currentState.cashBalance < NEGATIVE_CASH_LIMIT) {
       isBankrupt = true
