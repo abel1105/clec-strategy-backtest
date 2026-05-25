@@ -4,11 +4,10 @@ import { ConfigPanel } from './components/ConfigPanel'
 import { ResultsDashboard } from './components/ResultsDashboard'
 import { MarketMonitor } from './components/MarketMonitor'
 import { FinancialReportModal } from './components/FinancialReportModal'
-import { MARKET_DATA as BUILTIN_DATA } from './constants'
-import { parseTxtFile, aggregateToMonthly, buildMarketData } from './services/dataLoader'
+import { BUILT_IN_DATA_SOURCES } from './constants'
 import { runBacktest } from './services/simulationEngine'
 import { getStrategyByType } from './services/strategies'
-import { AssetConfig, Profile, SimulationResult, MarketDataRow } from './types'
+import { DataSource, Profile, SimulationResult, AssetEntry, AssetDataRow, ProfileConfig, StrategyType } from './types'
 import {
   LayoutDashboard,
   Settings2,
@@ -21,125 +20,56 @@ import {
 import { LanguageProvider, useTranslation, Language } from './services/i18n'
 import { version } from './package.json'
 
-const DEFAULT_CONFIG_A: AssetConfig = {
-  initialCapital: 1000000,
-  contributionAmount: 5000,
-  contributionIntervalMonths: 1,
-  yearlyContributionMonth: 12,
-  indexName: 'QQQ',
-  leveragedName: 'QLD',
-  indexWeight: 50,
-  leveragedWeight: 40,
-  contributionIndexWeight: 100,
-  contributionLeveragedWeight: 0,
-  cashYieldAnnual: 2.0,
-  leverage: {
-    enabled: false,
-    interestRate: 5.0,
-    indexPledgeRatio: 0.7,
-    leveragedPledgeRatio: 0.0,
-    cashPledgeRatio: 0.95,
-    maxLtv: 100,
-    withdrawType: 'PERCENT',
-    withdrawValue: 2.0,
-    inflationRate: 0.0,
-    interestType: 'CAPITALIZED',
-    ltvBasis: 'TOTAL_ASSETS',
-  },
-  annualExpenseAmount: 30000,
-  cashCoverageYears: 15,
-}
-
-const DEFAULT_CONFIG_B: AssetConfig = {
-  initialCapital: 1000000,
-  contributionAmount: 5000,
-  contributionIntervalMonths: 1,
-  yearlyContributionMonth: 12,
-  indexName: 'QQQ',
-  leveragedName: 'QLD',
-  indexWeight: 10,
-  leveragedWeight: 80,
-  contributionIndexWeight: 10,
-  contributionLeveragedWeight: 80,
-  cashYieldAnnual: 2.0,
-  leverage: {
-    enabled: false,
-    interestRate: 5.0,
-    indexPledgeRatio: 0.7,
-    leveragedPledgeRatio: 0.0,
-    cashPledgeRatio: 0.95,
-    maxLtv: 100,
-    withdrawType: 'PERCENT',
-    withdrawValue: 2.0,
-    inflationRate: 0.0,
-    interestType: 'CAPITALIZED',
-    ltvBasis: 'TOTAL_ASSETS',
-  },
-  annualExpenseAmount: 30000,
-  cashCoverageYears: 15,
-}
-
-const INITIAL_PROFILES: Profile[] = [
+const CREATE_DEFAULT_PROFILES = (): Profile[] => [
   {
-    id: '1',
-    name: 'Conservative',
-    color: '#2563eb', // Blue
-    strategyType: 'NO_REBALANCE',
-    config: DEFAULT_CONFIG_A,
+    id: '1', name: 'Conservative', color: '#2563eb',
+    strategyType: 'NO_REBALANCE' as StrategyType,
+    enabled: true,
+    assets: [
+      { dataSourceId: 'builtin-qqq', targetWeight: 50, contributionWeight: 100, pledgeRatio: 0.7 },
+      { dataSourceId: 'builtin-qld', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.0 },
+    ],
+    config: { initialCapital: 1000000, contributionAmount: 5000, contributionIntervalMonths: 1, yearlyContributionMonth: 12, cashYieldAnnual: 2.0, annualExpenseAmount: 30000, cashCoverageYears: 15, leverage: { enabled: false, interestRate: 5, cashPledgeRatio: 0.95, maxLtv: 100, withdrawType: 'PERCENT', withdrawValue: 2, inflationRate: 0, interestType: 'CAPITALIZED', ltvBasis: 'TOTAL_ASSETS' } },
   },
   {
-    id: '2',
-    name: 'Aggressive',
-    color: '#ea580c', // Orange (High contrast)
-    strategyType: 'SMART',
-    config: DEFAULT_CONFIG_B,
+    id: '2', name: 'Aggressive', color: '#ea580c',
+    strategyType: 'SMART' as StrategyType,
+    enabled: true,
+    assets: [
+      { dataSourceId: 'builtin-qqq', targetWeight: 10, contributionWeight: 10, pledgeRatio: 0.7 },
+      { dataSourceId: 'builtin-qld', targetWeight: 80, contributionWeight: 80, pledgeRatio: 0.0 },
+    ],
+    config: { initialCapital: 1000000, contributionAmount: 5000, contributionIntervalMonths: 1, yearlyContributionMonth: 12, cashYieldAnnual: 2.0, annualExpenseAmount: 30000, cashCoverageYears: 15, leverage: { enabled: false, interestRate: 5, cashPledgeRatio: 0.95, maxLtv: 100, withdrawType: 'PERCENT', withdrawValue: 2, inflationRate: 0, interestType: 'CAPITALIZED', ltvBasis: 'TOTAL_ASSETS' } },
   },
 ]
 
-interface SavedSource {
-  id: string
-  name: string
-  marketData: MarketDataRow[]
+const migrateProfile = (p: any): Profile => {
+  if (p.assets) return p as Profile
+  const c = p.config || {}
+  return {
+    id: p.id, name: p.name, color: p.color || '#000000',
+    strategyType: p.strategyType || 'NO_REBALANCE',
+    enabled: p.enabled !== false,
+    assets: [
+      { dataSourceId: p.dataSourceId || 'builtin-qqq', targetWeight: c.indexWeight ?? 50, contributionWeight: c.contributionIndexWeight ?? 50, pledgeRatio: c.leverage?.indexPledgeRatio ?? 0.7 },
+      { dataSourceId: p.dataSourceId ? `custom-${p.dataSourceId}-2` : 'builtin-qld', targetWeight: c.leveragedWeight ?? 40, contributionWeight: c.contributionLeveragedWeight ?? 40, pledgeRatio: c.leverage?.leveragedPledgeRatio ?? 0 },
+    ],
+    config: { initialCapital: c.initialCapital ?? 1000000, contributionAmount: c.contributionAmount ?? 5000, contributionIntervalMonths: c.contributionIntervalMonths ?? 1, yearlyContributionMonth: c.yearlyContributionMonth ?? 12, cashYieldAnnual: c.cashYieldAnnual ?? 2, annualExpenseAmount: c.annualExpenseAmount, cashCoverageYears: c.cashCoverageYears, leverage: { ...c.leverage, enabled: c.leverage?.enabled ?? false, interestRate: c.leverage?.interestRate ?? 5, cashPledgeRatio: c.leverage?.cashPledgeRatio ?? 0.95, maxLtv: c.leverage?.maxLtv ?? 100, withdrawType: c.leverage?.withdrawType ?? 'PERCENT', withdrawValue: c.leverage?.withdrawValue ?? 0, inflationRate: c.leverage?.inflationRate ?? 0, interestType: c.leverage?.interestType ?? 'CAPITALIZED', ltvBasis: c.leverage?.ltvBasis ?? 'TOTAL_ASSETS' } },
+  }
 }
 
 const MainApp = () => {
   const { t, language, setLanguage } = useTranslation()
-  const migrateProfiles = (profiles: Profile[]): Profile[] => {
-    return profiles.map((p) => {
-      const c = p.config
-      const needsMigrate = 'qqqWeight' in c
-      if (!needsMigrate) return p
-      return {
-        ...p,
-        config: {
-          ...c,
-          indexName: 'QQQ',
-          leveragedName: 'QLD',
-          indexWeight: (c as Record<string, unknown>).qqqWeight as number,
-          leveragedWeight: (c as Record<string, unknown>).qldWeight as number,
-          contributionIndexWeight: (c as Record<string, unknown>).contributionQqqWeight as number,
-          contributionLeveragedWeight: (c as Record<string, unknown>)
-            .contributionQldWeight as number,
-          leverage: {
-            ...c.leverage,
-            indexPledgeRatio: (c.leverage as unknown as Record<string, unknown>).qqqPledgeRatio as number,
-            leveragedPledgeRatio: (c.leverage as unknown as Record<string, unknown>).qldPledgeRatio as number,
-          },
-        },
-      }
-    })
-  }
 
   const [profiles, setProfiles] = useState<Profile[]>(() => {
     const saved = localStorage.getItem('app_profiles')
     if (saved) {
       try {
-        return migrateProfiles(JSON.parse(saved))
-      } catch (e) {
-        console.error('Failed to parse saved profiles:', e)
-      }
+        const parsed = JSON.parse(saved)
+        return Array.isArray(parsed) ? parsed.map(migrateProfile) : CREATE_DEFAULT_PROFILES()
+      } catch { /* ignore */ }
     }
-    return INITIAL_PROFILES
+    return CREATE_DEFAULT_PROFILES()
   })
   const [results, setResults] = useState<SimulationResult[]>([])
   const [isCalculated, setIsCalculated] = useState(false)
@@ -149,58 +79,91 @@ const MainApp = () => {
   })
   const [isCalculating, setIsCalculating] = useState(false)
 
-  const [savedSources, setSavedSources] = useState<SavedSource[]>(() => {
-    const saved = localStorage.getItem('app_saved_sources')
-    if (!saved) return []
-    try {
-      const raw: unknown[] = JSON.parse(saved)
-      return raw.map((item: unknown) => {
-        const s = item as Record<string, unknown>
-        if (s.marketData) return s as unknown as SavedSource
-        if (s.asset1Txt && s.asset2Txt) {
-          try {
-            const a1 = aggregateToMonthly(parseTxtFile(s.asset1Txt as string))
-            const a2 = aggregateToMonthly(parseTxtFile(s.asset2Txt as string))
-            return { id: s.id as string, name: s.name as string, marketData: buildMarketData(a1, a2) }
-          } catch {
-            return null
-          }
-        }
-        return null
-      }).filter(Boolean) as SavedSource[]
-    } catch {
-      return []
+  const [dataSources, setDataSources] = useState<DataSource[]>(() => {
+    const saved = localStorage.getItem('app_data_sources')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as DataSource[]
+        const builtinIds = new Set(BUILT_IN_DATA_SOURCES.map((s) => s.id))
+        return [...BUILT_IN_DATA_SOURCES, ...parsed.filter((s) => !builtinIds.has(s.id))]
+      } catch { /* ignore */ }
     }
+    const legacy = localStorage.getItem('app_saved_sources')
+    if (legacy) {
+      try {
+        const parsed = JSON.parse(legacy) as any[]
+        const migrated: DataSource[] = [...BUILT_IN_DATA_SOURCES]
+        for (const ls of parsed) {
+          if (!ls.marketData || !Array.isArray(ls.marketData)) continue
+          const parts = (ls.name || 'Asset').split('/')
+          migrated.push({
+            id: `migrated-${ls.id}-1`, name: parts[0]?.trim() || 'Asset1', multiplier: 1,
+            data: ls.marketData.map((r: any) => ({ date: r.date, close: r.indexClose ?? 0, low: r.indexLow ?? 0 })),
+          })
+          migrated.push({
+            id: `migrated-${ls.id}-2`, name: parts[1]?.trim() || 'Asset2', multiplier: 2,
+            data: ls.marketData.map((r: any) => ({ date: r.date, close: r.leveragedClose ?? 0, low: r.leveragedLow ?? 0 })),
+          })
+        }
+        return migrated
+      } catch { /* ignore */ }
+    }
+    return BUILT_IN_DATA_SOURCES
   })
 
-  const getMarketDataForSource = useCallback(
-    (sourceId: string | undefined): MarketDataRow[] => {
-      if (!sourceId) return BUILTIN_DATA
-      const source = savedSources.find((s) => s.id === sourceId)
-      return source?.marketData ?? BUILTIN_DATA
+  const initialBacktestWindow = (() => {
+    const dates = BUILT_IN_DATA_SOURCES.flatMap((s) => s.data.map((r) => r.date))
+    const globalMin = dates.length > 0 ? dates.reduce((a, b) => (a < b ? a : b)) : ''
+    const globalMax = dates.length > 0 ? dates.reduce((a, b) => (a > b ? a : b)) : ''
+    const getSaved = (key: string, fallback: string) => {
+      const saved = localStorage.getItem(key)
+      if (!saved || saved < globalMin || saved > globalMax) return fallback
+      return saved
+    }
+    const startMonth = getSaved('app_backtest_start_month', globalMin)
+    const endMonth = getSaved('app_backtest_end_month', globalMax)
+    if (startMonth > endMonth) return { startMonth: globalMin, endMonth: globalMax }
+    return { startMonth, endMonth }
+  })()
+
+  const [backtestWindow, setBacktestWindow] = useState(initialBacktestWindow)
+
+  useEffect(() => {
+    localStorage.setItem('app_backtest_start_month', backtestWindow.startMonth)
+  }, [backtestWindow.startMonth])
+
+  useEffect(() => {
+    localStorage.setItem('app_backtest_end_month', backtestWindow.endMonth)
+  }, [backtestWindow.endMonth])
+
+  const buildSimulationInput = useCallback(
+    (profile: Profile): { assetData: Record<string, AssetDataRow[]>; multipliers: Record<string, number>; assets: AssetEntry[]; config: ProfileConfig } | null => {
+      const assetData: Record<string, AssetDataRow[]> = {}
+      const multipliers: Record<string, number> = {}
+      for (const entry of profile.assets) {
+        const source = dataSources.find((s) => s.id === entry.dataSourceId)
+        if (!source) return null
+        assetData[entry.dataSourceId] = source.data
+        multipliers[entry.dataSourceId] = source.multiplier
+      }
+      return { assetData, multipliers, assets: profile.assets, config: profile.config }
     },
-    [savedSources],
+    [dataSources],
   )
 
   // Reporting Modal State
   const [reportResult, setReportResult] = useState<SimulationResult | null>(null)
-  const [reportMarketData, setReportMarketData] = useState<MarketDataRow[]>([])
+  const [reportMarketData, setReportMarketData] = useState<Record<string, AssetDataRow[]> | null>(null)
 
   // View state: 'backtest' | 'monitor'
   const [currentView, setCurrentView] = useState<'backtest' | 'monitor'>('backtest')
+  const showMonitor = false
 
   // Sidebar state
   const [isSidebarOpen, setSidebarOpen] = useState(() => {
     const saved = localStorage.getItem('app_sidebar_open')
     return saved !== null ? saved === 'true' : true
   })
-
-  // Migrate old localStorage keys
-  useEffect(() => {
-    for (const key of ['app_data_source', 'app_data_source_custom', 'app_data_source_selection', 'app_active_source_id']) {
-      if (localStorage.getItem(key)) localStorage.removeItem(key)
-    }
-  }, [])
 
   // Auto-collapse on small screens initially
   useEffect(() => {
@@ -215,16 +178,16 @@ const MainApp = () => {
   }, [profiles])
 
   useEffect(() => {
+    localStorage.setItem('app_data_sources', JSON.stringify(dataSources))
+  }, [dataSources])
+
+  useEffect(() => {
     localStorage.setItem('app_show_benchmark', String(showBenchmarks))
   }, [showBenchmarks])
 
   useEffect(() => {
     localStorage.setItem('app_sidebar_open', String(isSidebarOpen))
   }, [isSidebarOpen])
-
-  useEffect(() => {
-    localStorage.setItem('app_saved_sources', JSON.stringify(savedSources))
-  }, [savedSources])
 
   useEffect(() => {
     if (profiles.length === 0) {
@@ -236,90 +199,42 @@ const MainApp = () => {
   const handleRunSimulation = useCallback(() => {
     setIsCalculating(true)
 
-    // Using setTimeout to allow UI to render the "Calculating" state before heavy CPU task
     setTimeout(() => {
-      const newResults = []
+      const newResults: SimulationResult[] = []
 
-      // 1. Run Strategy Backtests
-      profiles.forEach((profile) => {
+      for (const profile of profiles) {
+        if (profile.enabled === false) continue
+        const input = buildSimulationInput(profile)
+        if (!input) continue
         const strategyFunc = getStrategyByType(profile.strategyType)
-        const profileMarketData = getMarketDataForSource(profile.dataSourceId)
         newResults.push(
-          runBacktest(profileMarketData, strategyFunc, profile.config, profile.name, profile.color),
+          runBacktest(input.assetData, input.multipliers, strategyFunc, input.assets, input.config, profile.name, profile.color, backtestWindow.startMonth, backtestWindow.endMonth),
         )
-      })
+      }
 
-      // 2. Add Benchmarks (based on the first profile's capital/contribution settings)
-      if (profiles.length > 0 && showBenchmarks) {
-        const firstProfile = profiles[0]
-        if (!firstProfile) return
-        const baseConfig = firstProfile.config
-        const benchmarkData = getMarketDataForSource(firstProfile.dataSourceId)
-
-        // Benchmark: Index (1x)
-        const indexConfig: AssetConfig = {
-          ...baseConfig,
-          indexName: baseConfig.indexName || 'QQQ',
-          leveragedName: baseConfig.leveragedName || 'QLD',
-          indexWeight: 100,
-          leveragedWeight: 0,
-          contributionIndexWeight: 100,
-          contributionLeveragedWeight: 0,
-          leverage: {
-            ...baseConfig.leverage,
-            enabled: false,
-          },
+      // Benchmarks
+      if (showBenchmarks && profiles.length > 0) {
+        const firstInput = buildSimulationInput(profiles[0])
+        if (firstInput) {
+          for (const assetId of Object.keys(firstInput.assetData)) {
+            const source = dataSources.find((s) => s.id === assetId)
+            if (!source) continue
+            const benchAssets: AssetEntry[] = [
+              { dataSourceId: assetId, targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7 },
+            ]
+            newResults.push(
+              runBacktest(firstInput.assetData, firstInput.multipliers, getStrategyByType('NO_REBALANCE'), benchAssets, profiles[0].config, `Benchmark: ${source.name}`, '#64748b', backtestWindow.startMonth, backtestWindow.endMonth),
+            )
+          }
         }
-
-        // Benchmark: Leveraged (2x)
-        const leveragedConfig: AssetConfig = {
-          ...baseConfig,
-          indexName: baseConfig.indexName || 'QQQ',
-          leveragedName: baseConfig.leveragedName || 'QLD',
-          indexWeight: 0,
-          leveragedWeight: 100,
-          contributionIndexWeight: 0,
-          contributionLeveragedWeight: 100,
-          leverage: {
-            ...baseConfig.leverage,
-            enabled: false,
-          },
-        }
-
-        const indexName = baseConfig.indexName || 'QQQ'
-        const leveragedName = baseConfig.leveragedName || 'QLD'
-
-        newResults.push(
-          runBacktest(
-            benchmarkData,
-            getStrategyByType('NO_REBALANCE'),
-            indexConfig,
-            `Benchmark: ${indexName}`,
-            '#64748b',
-          ),
-        )
-
-        newResults.push(
-          runBacktest(
-            benchmarkData,
-            getStrategyByType('NO_REBALANCE'),
-            leveragedConfig,
-            `Benchmark: ${leveragedName}`,
-            '#94a3b8',
-          ),
-        )
       }
 
       setResults(newResults)
       setIsCalculated(true)
       setIsCalculating(false)
-
-      // Auto close on mobile only
-      if (window.innerWidth < 1024) {
-        setSidebarOpen(false)
-      }
-    }, 100) // Small delay to yield to UI thread
-  }, [profiles, showBenchmarks, getMarketDataForSource])
+      if (window.innerWidth < 1024) setSidebarOpen(false)
+    }, 100)
+  }, [profiles, showBenchmarks, buildSimulationInput, dataSources, backtestWindow])
 
   useEffect(() => {
     handleRunSimulation()
@@ -328,10 +243,18 @@ const MainApp = () => {
 
   const handleViewDetails = (profileId: string) => {
     if (!isCalculated) return
-    const index = profiles.findIndex((p) => p.id === profileId)
-    if (index >= 0 && results[index]) {
-      setReportResult(results[index])
-      setReportMarketData(getMarketDataForSource(profiles[index].dataSourceId))
+    // results array only contains enabled profiles; count enabled profiles
+    // up to (and including) the target to find the correct result index
+    let resultIdx = 0
+    for (const p of profiles) {
+      if (p.id === profileId) {
+        if (results[resultIdx]) {
+          setReportResult(results[resultIdx])
+          setReportMarketData(buildSimulationInput(p)?.assetData ?? null)
+        }
+        break
+      }
+      if (p.enabled !== false) resultIdx++
     }
   }
 
@@ -351,6 +274,7 @@ const MainApp = () => {
         <FinancialReportModal
           result={reportResult}
           marketData={reportMarketData}
+          dataSources={dataSources}
           onClose={() => setReportResult(null)}
         />
       )}
@@ -474,17 +398,19 @@ const MainApp = () => {
               <LineChart className="w-4 h-4" />
               {t('backtestView')}
             </button>
-            <button
-              onClick={() => setCurrentView('monitor')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-bold transition-all ${
-                currentView === 'monitor'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              {t('liveMonitor')}
-            </button>
+            {showMonitor && (
+              <button
+                onClick={() => setCurrentView('monitor')}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-bold transition-all ${
+                  currentView === 'monitor'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Activity className="w-4 h-4" />
+                {t('liveMonitor')}
+              </button>
+            )}
           </div>
         </div>
 
@@ -500,22 +426,28 @@ const MainApp = () => {
               hasResults={isCalculated}
               showBenchmark={showBenchmarks}
               onShowBenchmarkChange={setShowBenchmarks}
-              savedSources={savedSources}
-              onSaveSource={(src) => {
-                setSavedSources((prev) => [...prev, src])
-              }}
-              onDeleteSource={(id: string) => {
-                setSavedSources((prev) => prev.filter((s) => s.id !== id))
-              }}
-              onImportData={({ profiles: importedProfiles, savedSources: importedSources }) => {
-                setProfiles(importedProfiles)
-                setSavedSources((prev) => {
-                  const existing = new Map(prev.map((s) => [s.id, s]))
-                  for (const src of importedSources) {
-                    existing.set(src.id, src)
-                  }
+              dataSources={dataSources}
+              onSaveSource={(ds: DataSource) => setDataSources((prev) => [...prev, ds])}
+              onDeleteSource={(id: string) => setDataSources((prev) => prev.filter((s) => s.id !== id || s.id.startsWith('builtin-')))}
+              onImportData={({ profiles: importedProfiles, dataSources: importedSources }) => {
+                setProfiles((prev) => {
+                  const existing = new Map(prev.map((p) => [p.id, p]))
+                  for (const p of importedProfiles) existing.set(p.id, migrateProfile(p))
                   return Array.from(existing.values())
                 })
+                if (importedSources) {
+                  setDataSources((prev) => {
+                    const existing = new Map(prev.map((d) => [d.id, d]))
+                    for (const ds of importedSources) existing.set(ds.id, ds)
+                    return Array.from(existing.values())
+                  })
+                }
+              }}
+              backtestStartMonth={backtestWindow.startMonth}
+              backtestEndMonth={backtestWindow.endMonth}
+              onBacktestWindowChange={(startMonth, endMonth) => {
+                setBacktestWindow({ startMonth, endMonth })
+                setIsCalculated(false)
               }}
             />
 
@@ -541,7 +473,7 @@ const MainApp = () => {
           </button>
         </div>
 
-        {currentView === 'monitor' ? (
+        {currentView === 'monitor' && showMonitor ? (
           <div className="max-w-7xl mx-auto animate-in fade-in duration-500">
             <MarketMonitor />
           </div>

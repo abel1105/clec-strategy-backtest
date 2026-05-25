@@ -1,3 +1,5 @@
+import { AssetDataRow } from '../types'
+
 export interface DailyPoint {
   date: string // YYYYMMDD
   price: number
@@ -59,24 +61,10 @@ export function aggregateToMonthly(daily: DailyPoint[]): MonthlyPoint[] {
   return result
 }
 
-import { MarketDataRow } from '../types'
-
-export function buildMarketData(asset1: MonthlyPoint[], asset2: MonthlyPoint[]): MarketDataRow[] {
-  const map1 = new Map(asset1.map((a) => [a.month, a]))
-  const map2 = new Map(asset2.map((a) => [a.month, a]))
-  const months = Array.from(new Set([...map1.keys(), ...map2.keys()])).sort()
-  return months
-    .filter((month) => map1.has(month) && map2.has(month))
-    .map((month) => {
-      const a1 = map1.get(month)!
-      const a2 = map2.get(month)!
-      return {
-        date: `${month}-01`,
-        indexClose: a1.close,
-        indexLow: a1.low,
-        leveragedClose: a2.close,
-        leveragedLow: a2.low,
-      }
-    })
-    .filter((row) => row.indexClose > 0 && row.leveragedClose > 0)
+export function monthlyPointsToAssetData(points: MonthlyPoint[]): AssetDataRow[] {
+  return points.map((p) => ({
+    date: `${p.month}-01`,
+    close: p.close,
+    low: p.low,
+  }))
 }

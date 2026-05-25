@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { parseTxtFile, aggregateToMonthly, buildMarketData, MonthlyPoint } from '../dataLoader'
+import { parseTxtFile, aggregateToMonthly, monthlyPointsToAssetData } from '../dataLoader'
+import { BUILT_IN_DATA_SOURCES } from '../../constants'
 
 describe('parseTxtFile', () => {
   it('should parse dates and prices from txt content', () => {
@@ -36,38 +37,34 @@ describe('aggregateToMonthly', () => {
   })
 })
 
-describe('buildMarketData', () => {
-  it('should join two asset series into MarketDataRow[]', () => {
-    const asset1: MonthlyPoint[] = [
-      { month: '2020-01', close: 100, low: 99 },
-      { month: '2020-02', close: 110, low: 108 },
+describe('monthlyPointsToAssetData', () => {
+  it('should convert MonthlyPoint[] to AssetDataRow[]', () => {
+    const input = [
+      { month: '2020-01', close: 100, low: 95 },
+      { month: '2020-02', close: 110, low: 105 },
     ]
-    const asset2: MonthlyPoint[] = [
-      { month: '2020-01', close: 200, low: 198 },
-      { month: '2020-02', close: 220, low: 215 },
-    ]
-    const result = buildMarketData(asset1, asset2)
-    expect(result).toHaveLength(2)
-    expect(result[0]).toEqual({
-      date: '2020-01-01',
-      indexClose: 100,
-      indexLow: 99,
-      leveragedClose: 200,
-      leveragedLow: 198,
-    })
+    const result = monthlyPointsToAssetData(input)
+    expect(result).toEqual([
+      { date: '2020-01-01', close: 100, low: 95 },
+      { date: '2020-02-01', close: 110, low: 105 },
+    ])
   })
+})
 
-  it('should only include months present in BOTH series', () => {
-    const asset1: MonthlyPoint[] = [
-      { month: '2020-01', close: 100, low: 99 },
-      { month: '2020-02', close: 110, low: 108 },
-    ]
-    const asset2: MonthlyPoint[] = [
-      { month: '2020-01', close: 200, low: 198 },
-      { month: '2020-03', close: 230, low: 225 },
-    ]
-    const result = buildMarketData(asset1, asset2)
-    expect(result).toHaveLength(1)
-    expect(result[0].date).toBe('2020-01-01')
+describe('BUILT_IN_DATA_SOURCES', () => {
+  it('should export QQQ and QLD with correct multipliers', () => {
+    expect(BUILT_IN_DATA_SOURCES).toHaveLength(8)
+    const qqq = BUILT_IN_DATA_SOURCES.find((s) => s.id === 'builtin-qqq')
+    const qld = BUILT_IN_DATA_SOURCES.find((s) => s.id === 'builtin-qld')
+    const source631l = BUILT_IN_DATA_SOURCES.find((s) => s.id === 'builtin-00631l')
+    expect(qqq?.name).toBe('QQQ')
+    expect(qqq?.multiplier).toBe(1)
+    expect(qld?.name).toBe('QLD')
+    expect(qld?.multiplier).toBe(2)
+    expect(source631l?.name).toBe('00631L')
+    expect(source631l?.multiplier).toBe(2)
+    expect(qqq?.data.length).toBeGreaterThan(100)
+    expect(qld?.data.length).toBeGreaterThan(100)
+    expect(source631l?.data.length).toBeGreaterThan(100)
   })
 })

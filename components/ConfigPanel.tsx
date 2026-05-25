@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AssetConfig, Profile, StrategyType, MarketDataRow } from '../types'
+import { Profile, StrategyType, DataSource, AssetEntry, ProfileConfig } from '../types'
 import {
   Settings,
   DollarSign,
@@ -10,26 +10,19 @@ import {
   Edit2,
   ArrowLeft,
   Check,
-  Coins,
   Percent,
   Landmark,
   Info,
   AlertOctagon,
-  AlertTriangle,
   FileText,
   Download,
   Upload,
   Copy,
   Sparkles,
+  Calendar,
 } from 'lucide-react'
 import { useTranslation } from '../services/i18n'
-import { parseTxtFile, aggregateToMonthly, buildMarketData } from '../services/dataLoader'
-
-interface SavedSource {
-  id: string
-  name: string
-  marketData: MarketDataRow[]
-}
+import { parseTxtFile, aggregateToMonthly, monthlyPointsToAssetData } from '../services/dataLoader'
 
 interface ConfigPanelProps {
   profiles: Profile[]
@@ -39,10 +32,13 @@ interface ConfigPanelProps {
   hasResults: boolean
   showBenchmark: boolean
   onShowBenchmarkChange: (val: boolean) => void
-  savedSources: SavedSource[]
-  onSaveSource: (source: SavedSource) => void
+  dataSources: DataSource[]
+  onSaveSource: (source: DataSource) => void
   onDeleteSource: (sourceId: string) => void
-  onImportData: (data: { profiles: Profile[]; savedSources: SavedSource[] }) => void
+  onImportData: (data: { profiles: Profile[]; dataSources: DataSource[] }) => void
+  backtestStartMonth: string
+  backtestEndMonth: string
+  onBacktestWindowChange: (startMonth: string, endMonth: string) => void
 }
 
 // High-contrast palette for distinct chart lines
@@ -59,30 +55,22 @@ const PROFILE_COLORS = [
   '#4f46e5', // Indigo
 ]
 
-const DEFAULT_ASSET_CONFIG: AssetConfig = {
+const DEFAULT_PROFILE_CONFIG: ProfileConfig = {
   initialCapital: 10000,
   contributionAmount: 500,
   contributionIntervalMonths: 1,
-  yearlyContributionMonth: 12, // Default to December
-  indexName: 'QQQ',
-  leveragedName: 'QLD',
-  indexWeight: 50,
-  leveragedWeight: 40,
-  contributionIndexWeight: 100, // Default to safer contribution
-  contributionLeveragedWeight: 0,
+  yearlyContributionMonth: 12,
   cashYieldAnnual: 2.0,
   leverage: {
     enabled: false,
     interestRate: 5.0,
-    indexPledgeRatio: 0.7,
-    leveragedPledgeRatio: 0.0, // Default 0% pledge for leveraged ETF
     cashPledgeRatio: 0.95,
     maxLtv: 100.0,
     withdrawType: 'PERCENT',
     withdrawValue: 2.0,
-    inflationRate: 0.0, // Default 0%
-    interestType: 'CAPITALIZED', // Default to Capitalized
-    ltvBasis: 'TOTAL_ASSETS', // Default to Total Assets
+    inflationRate: 0.0,
+    interestType: 'CAPITALIZED',
+    ltvBasis: 'TOTAL_ASSETS',
   },
   annualExpenseAmount: 200,
   cashCoverageYears: 15,
@@ -96,16 +84,49 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   hasResults,
   showBenchmark,
   onShowBenchmarkChange,
-  savedSources,
+  dataSources,
   onSaveSource,
   onDeleteSource,
   onImportData,
+  backtestStartMonth,
+  backtestEndMonth,
+  onBacktestWindowChange,
 }) => {
   const { t } = useTranslation()
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
   const [hasChanged, setHasChanged] = useState(false)
+  const [newSourceName, setNewSourceName] = useState('')
+  const [newSourceMultiplier, setNewSourceMultiplier] = useState(1)
+  const [fileContent, setFileContent] = useState<string | null>(null)
 
-  const isValidSource = (src: SavedSource) => src.marketData.length > 0
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setFileContent(reader.result as string)
+    reader.readAsText(file)
+  }
+
+  const handleSaveSource = () => {
+    if (!fileContent || !newSourceName || newSourceMultiplier < 1) return
+    try {
+      const daily = parseTxtFile(fileContent)
+      const monthly = aggregateToMonthly(daily)
+      const data = monthlyPointsToAssetData(monthly)
+      const newSource: DataSource = {
+        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: newSourceName,
+        multiplier: newSourceMultiplier,
+        data,
+      }
+      onSaveSource(newSource)
+      setNewSourceName('')
+      setNewSourceMultiplier(1)
+      setFileContent(null)
+    } catch (e) {
+      alert('Error parsing file: ' + (e as Error).message)
+    }
+  }
 
   // Reset change tracker when starting to edit a new profile
   React.useEffect(() => {
@@ -157,11 +178,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       name: `${t('profiles')} ${profiles.length + 1}`,
       color: nextColor,
       strategyType: 'NO_REBALANCE',
-      config: {
-        ...JSON.parse(JSON.stringify(DEFAULT_ASSET_CONFIG)),
-        indexName: 'QQQ',
-        leveragedName: 'QLD',
-      },
+      assets: [],
+      config: JSON.parse(JSON.stringify(DEFAULT_PROFILE_CONFIG)),
     }
 
     onProfilesChange([...profiles, newProfile])
@@ -185,7 +203,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       id: newId,
       name: `${t('copyPrefix')}${profile.name}`,
       color: nextColor,
-      config: JSON.parse(JSON.stringify(profile.config)), // Deep copy
+      assets: JSON.parse(JSON.stringify(profile.assets)),
+      config: JSON.parse(JSON.stringify(profile.config)),
     }
 
     onProfilesChange([...profiles, newProfile])
@@ -193,39 +212,38 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   }
 
   const handleAutoGenerate = (baseProfile: Profile) => {
-    // Base template from the passed profile
     const baseConfig = baseProfile.config
+    const baseAssets = baseProfile.assets
 
-    // User's defined ratios (Index-Leveraged-Cash)
     const candidates = [
-      { q: 10, l: 0, c: 0, name: 'Full Index' },
-      { q: 9, l: 0, c: 1, name: '901' },
-      { q: 9, l: 1, c: 0, name: '910' },
-      { q: 8, l: 1, c: 1, name: '811' },
-      { q: 8, l: 0, c: 2, name: '802' },
-      { q: 8, l: 2, c: 0, name: '820' },
-      { q: 7, l: 1, c: 2, name: '712' },
-      { q: 7, l: 2, c: 1, name: '721' },
-      { q: 7, l: 0, c: 3, name: '703' },
-      { q: 7, l: 3, c: 0, name: '730' },
-      { q: 6, l: 2, c: 2, name: '622' },
-      { q: 6, l: 1, c: 3, name: '613' },
-      { q: 6, l: 3, c: 1, name: '631' },
-      { q: 6, l: 0, c: 4, name: '604' },
-      { q: 6, l: 4, c: 0, name: '640' },
-      { q: 5, l: 2, c: 3, name: '523' },
-      { q: 5, l: 1, c: 4, name: '514' },
-      { q: 5, l: 4, c: 1, name: '541' },
-      { q: 5, l: 0, c: 5, name: '505' },
-      { q: 5, l: 5, c: 0, name: '550' },
-      { q: 5, l: 3, c: 2, name: '532' },
-      { q: 4, l: 3, c: 3, name: '433' },
-      { q: 4, l: 4, c: 2, name: '442' },
-      { q: 4, l: 5, c: 1, name: '451' },
-      { q: 4, l: 1, c: 5, name: '415' },
-      { q: 4, l: 2, c: 4, name: '424' },
-      { q: 4, l: 0, c: 6, name: '406' },
-      { q: 4, l: 6, c: 0, name: '460' },
+      { q: 10, l: 0, name: 'Full Index' },
+      { q: 9, l: 0, name: '901' },
+      { q: 9, l: 1, name: '910' },
+      { q: 8, l: 1, name: '811' },
+      { q: 8, l: 0, name: '802' },
+      { q: 8, l: 2, name: '820' },
+      { q: 7, l: 1, name: '712' },
+      { q: 7, l: 2, name: '721' },
+      { q: 7, l: 0, name: '703' },
+      { q: 7, l: 3, name: '730' },
+      { q: 6, l: 2, name: '622' },
+      { q: 6, l: 1, name: '613' },
+      { q: 6, l: 3, name: '631' },
+      { q: 6, l: 0, name: '604' },
+      { q: 6, l: 4, name: '640' },
+      { q: 5, l: 2, name: '523' },
+      { q: 5, l: 1, name: '514' },
+      { q: 5, l: 4, name: '541' },
+      { q: 5, l: 0, name: '505' },
+      { q: 5, l: 5, name: '550' },
+      { q: 5, l: 3, name: '532' },
+      { q: 4, l: 3, name: '433' },
+      { q: 4, l: 4, name: '442' },
+      { q: 4, l: 5, name: '451' },
+      { q: 4, l: 1, name: '415' },
+      { q: 4, l: 2, name: '424' },
+      { q: 4, l: 0, name: '406' },
+      { q: 4, l: 6, name: '460' },
     ]
 
     const strategies: { type: StrategyType; label: string }[] = [
@@ -238,36 +256,21 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
     const generatedProfiles: Profile[] = []
 
-    // Color palette helper
     const COLORS = [
-      '#2563eb',
-      '#dc2626',
-      '#16a34a',
-      '#d97706',
-      '#9333ea',
-      '#0891b2',
-      '#be123c',
-      '#4d7c0f',
-      '#854d0e',
-      '#3730a3',
-      '#0f766e',
-      '#9f1239',
-      '#15803d',
-      '#a16207',
-      '#5b21b6',
-      '#0e7490',
-      '#be185d',
-      '#3f6212',
-      '#713f12',
-      '#4338ca',
+      '#2563eb', '#dc2626', '#16a34a', '#d97706', '#9333ea',
+      '#0891b2', '#be123c', '#4d7c0f', '#854d0e', '#3730a3',
+      '#0f766e', '#9f1239', '#15803d', '#a16207', '#5b21b6',
+      '#0e7490', '#be185d', '#3f6212', '#713f12', '#4338ca',
     ]
     let colorIdx = 0
     const getNextColor = () => COLORS[colorIdx++ % COLORS.length]
 
+    const primaryAsset = baseAssets[0]
+    const secondaryAsset = baseAssets.length > 1 ? baseAssets[1] : null
+
     const hasDca = baseConfig.contributionAmount > 0
     const dcaList = hasDca ? candidates : [{ q: 0, l: 0, name: '' }]
 
-    // Generate combinations: (Initial Ratio) x (DCA Ratio) x (Strategy)
     for (const init of candidates) {
       for (const dca of dcaList) {
         for (const strat of strategies) {
@@ -275,20 +278,32 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             ? `${init.name}-${dca.name}-${strat.label}`
             : `${init.name}-${strat.label}`
 
+          const newAssets: AssetEntry[] = []
+          if (primaryAsset && init.q > 0) {
+            newAssets.push({
+              dataSourceId: primaryAsset.dataSourceId,
+              targetWeight: init.q * 10,
+              contributionWeight: dca.q * 10,
+              pledgeRatio: primaryAsset.pledgeRatio,
+            })
+          }
+          if (secondaryAsset && init.l > 0) {
+            newAssets.push({
+              dataSourceId: secondaryAsset.dataSourceId,
+              targetWeight: init.l * 10,
+              contributionWeight: dca.l * 10,
+              pledgeRatio: secondaryAsset.pledgeRatio,
+            })
+          }
+
           generatedProfiles.push({
             id: profileName,
             name: profileName,
             color: getNextColor(),
             strategyType: strat.type,
+            assets: newAssets,
             config: {
               ...baseConfig,
-              // Initial Allocation
-              indexWeight: init.q * 10,
-              leveragedWeight: init.l * 10,
-              // DCA Allocation
-              contributionIndexWeight: dca.q * 10,
-              contributionLeveragedWeight: dca.l * 10,
-              // Use seed values if available, otherwise fallback to defaults
               annualExpenseAmount: baseConfig.annualExpenseAmount ?? 30000,
               cashCoverageYears: baseConfig.cashCoverageYears ?? 15,
             },
@@ -306,14 +321,11 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     }
   }
 
-  const updateProfile = (id: string, updates: Partial<Profile> | Partial<AssetConfig>) => {
+  const updateProfile = (id: string, updates: Partial<Profile> | Partial<ProfileConfig>) => {
     onProfilesChange((prevProfiles) =>
       prevProfiles.map((p) => {
         if (p.id !== id) return p
-        // Define configuration keys explicitly to ensure correct routing
-        // Use keys from DEFAULT_ASSET_CONFIG to determine if it's a config update
-        // This is more robust than hardcoding keys and ensures future config additions work automatically
-        const isConfigUpdate = Object.keys(updates).some((k) => k in DEFAULT_ASSET_CONFIG)
+        const isConfigUpdate = Object.keys(updates).some((k) => k in DEFAULT_PROFILE_CONFIG)
         if (isConfigUpdate) {
           return { ...p, config: { ...p.config, ...updates } }
         }
@@ -322,7 +334,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     )
     setHasChanged(true)
   }
-  const updateLeverage = (id: string, updates: Partial<AssetConfig['leverage']>) => {
+  const updateLeverage = (id: string, updates: Partial<ProfileConfig['leverage']>) => {
     onProfilesChange((prevProfiles) =>
       prevProfiles.map((p) => {
         if (p.id !== id) return p
@@ -339,9 +351,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   }
 
   const handleExport = () => {
-    const referencedIds = new Set(profiles.map((p) => p.dataSourceId).filter(Boolean))
-    const referencedSources = savedSources.filter((s) => referencedIds.has(s.id))
-    const data = JSON.stringify({ version: 1, profiles, savedSources: referencedSources }, null, 2)
+    const data = JSON.stringify({ version: 1, profiles, dataSources }, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -364,7 +374,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
         } else if (raw.version === 1 && Array.isArray(raw.profiles)) {
           onImportData({
             profiles: raw.profiles,
-            savedSources: Array.isArray(raw.savedSources) ? raw.savedSources : [],
+            dataSources: Array.isArray(raw.dataSources) ? raw.dataSources : [],
           })
         } else {
           alert('Invalid profiles data')
@@ -392,19 +402,28 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
     const profile = profiles.find((p) => p.id === editingProfileId)
     if (!profile) return null
 
-    const cashWeight = Math.max(
-      0,
-      100 - profile.config.indexWeight - profile.config.leveragedWeight,
-    )
-    const contribCashWeight = Math.max(
-      0,
-      100 - profile.config.contributionIndexWeight - profile.config.contributionLeveragedWeight,
-    )
-
     // Calculate Maintenance Ratio for UI display
     const currentMaxLtv = profile.config.leverage?.maxLtv ?? 100
     const maintenanceRatio = currentMaxLtv > 0 ? (100 / currentMaxLtv) * 100 : 0
     const riskInfo = getRiskLevel(currentMaxLtv)
+
+    const addAsset = (dataSourceId: string) => {
+      updateProfile(profile.id, {
+        assets: [...profile.assets, { dataSourceId, targetWeight: 0, contributionWeight: 0, pledgeRatio: 0.7 }],
+      })
+    }
+
+    const removeAsset = (index: number) => {
+      updateProfile(profile.id, {
+        assets: profile.assets.filter((_, i) => i !== index),
+      })
+    }
+
+    const updateAsset = (index: number, updates: Partial<AssetEntry>) => {
+      updateProfile(profile.id, {
+        assets: profile.assets.map((a, i) => (i === index ? { ...a, ...updates } : a)),
+      })
+    }
 
     return (
       <div className="flex flex-col animate-in slide-in-from-right duration-300">
@@ -450,151 +469,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             </div>
           </div>
 
-          {/* Data Source */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-500 uppercase">
-              {t('dataSource')}
-            </label>
-            <div className="space-y-1">
-              <label className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200">
-                <input
-                  type="radio"
-                  name={`dataSource-${profile.id}`}
-                  checked={profile.dataSourceId == null}
-                  onChange={() =>
-                    updateProfile(profile.id, {
-                      dataSourceId: undefined,
-                      config: { ...profile.config, indexName: 'QQQ', leveragedName: 'QLD' },
-                    })
-                  }
-                  className="accent-blue-600"
-                />
-                <div className="flex-1">
-                  <span className="text-sm font-medium text-slate-700">QQQ / QLD (Built-in)</span>
-                  <p className="text-xs text-slate-400">Nasdaq 100 & 2x Leveraged ETF</p>
-                </div>
-              </label>
-              {savedSources.map((src) => {
-                const parts = src.name.split('/')
-                const indexName = parts[0]?.trim() || 'QQQ'
-                const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
-                return (
-                  <label
-                    key={src.id}
-                    className="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors hover:bg-slate-50 has-[:checked]:bg-blue-50 has-[:checked]:border-blue-200"
-                  >
-                    <input
-                      type="radio"
-                      name={`dataSource-${profile.id}`}
-                      checked={profile.dataSourceId === src.id}
-                      onChange={() =>
-                        updateProfile(profile.id, {
-                          dataSourceId: src.id,
-                          config: { ...profile.config, indexName, leveragedName },
-                        })
-                      }
-                      className="accent-blue-600"
-                    />
-                    <span className="flex-1 text-sm font-medium text-slate-700 flex items-center gap-2">
-                      {src.name}
-                      {!isValidSource(src) && (
-                        <span title="Invalid format: needs 2 lines (dates + prices)">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                )
-              })}
-              <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
-                <summary className="flex items-center gap-2 p-3 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-lg select-none">
-                  <Plus className="w-4 h-4" /> {t('customData')}
-                </summary>
-                <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
-                  <div>
-                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                      {t('dataSourceName')}
-                    </label>
-                    <input
-                      id={`new-source-name-${profile.id}`}
-                      type="text"
-                      placeholder="SPY/SSO"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                      1x ({t('indexAsset')})
-                    </label>
-                    <input
-                      id={`new-source-file1-${profile.id}`}
-                      type="file"
-                      accept=".txt"
-                      className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                      2x ({t('leveragedAsset')})
-                    </label>
-                    <input
-                      id={`new-source-file2-${profile.id}`}
-                      type="file"
-                      accept=".txt"
-                      className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                    />
-              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by space</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const nameInput = document.getElementById(`new-source-name-${profile.id}`) as HTMLInputElement
-                      const file1Input = document.getElementById(`new-source-file1-${profile.id}`) as HTMLInputElement
-                      const file2Input = document.getElementById(`new-source-file2-${profile.id}`) as HTMLInputElement
-                      const file1 = file1Input?.files?.[0]
-                      const file2 = file2Input?.files?.[0]
-                      const name = nameInput?.value?.trim()
-                      if (!name || !file1 || !file2) return
-                      Promise.all([
-                        new Promise<string>((resolve) => {
-                          const r = new FileReader()
-                          r.onload = () => resolve(r.result as string)
-                          r.readAsText(file1)
-                        }),
-                        new Promise<string>((resolve) => {
-                          const r = new FileReader()
-                          r.onload = () => resolve(r.result as string)
-                          r.readAsText(file2)
-                        }),
-                      ]).then(([asset1Txt, asset2Txt]) => {
-                        const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4)
-                        const parts = name.split('/')
-                        const indexName = parts[0]?.trim() || 'QQQ'
-                        const leveragedName = parts[1]?.trim() || parts[0]?.trim() || 'QLD'
-                        try {
-                          const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
-                          const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
-                          const marketData = buildMarketData(a1, a2)
-                          onSaveSource({ id, name, marketData })
-                          updateProfile(profile.id, {
-                            dataSourceId: id,
-                            config: { ...profile.config, indexName, leveragedName },
-                          })
-                        } catch (e) {
-                          alert('Invalid file format. Each file needs 2 lines: dates (YYYYMMDD) on line 1, prices on line 2.')
-                        }
-                        nameInput.value = ''
-                        file1Input.value = ''
-                        file2Input.value = ''
-                      })
-                    }}
-                    className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
-                  >
-                    {t('save')}
-                  </button>
-                </div>
-              </details>
-            </div>
-          </div>
+
 
           {/* Strategy */}
           <div className="space-y-2">
@@ -766,113 +641,105 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             )}
           </div>
 
-          {/* Portfolio Allocation */}
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-600 mb-2 border-b border-slate-100 pb-2">
-              <PieChart className="w-4 h-4" /> {t('targetAllocation')}
+          {/* Asset List */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-slate-500 uppercase">{t('assets') || 'Assets'}</h3>
+            {profile.assets.map((asset, i) => {
+              const source = dataSources.find((s) => s.id === asset.dataSourceId)
+              return (
+                <div key={asset.dataSourceId} className="border rounded p-3 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-sm">
+                      {source?.name || asset.dataSourceId}
+                      <span className="text-xs text-gray-400 ml-1">{source?.multiplier}x</span>
+                    </span>
+                    <button
+                      onClick={() => removeAsset(i)}
+                      className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                      title={t('removeAsset')}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                   <div>
+                     <div className="flex justify-between items-center mb-1">
+                       <span className="text-gray-600">{t('targetWeight') || 'Target Weight'}</span>
+                       <input
+                         type="number"
+                         min={0}
+                         max={100}
+                         value={asset.targetWeight}
+                         onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) || 0 })}
+                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       />
+                     </div>
+                     <input type="range" min={0} max={100} value={asset.targetWeight}
+                       onChange={(e) => updateAsset(i, { targetWeight: Number(e.target.value) })}
+                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                   </div>
+                   <div>
+                     <div className="flex justify-between items-center mb-1">
+                       <span className="text-gray-600">{t('contributionWeight') || 'Contribution Weight'}</span>
+                       <input
+                         type="number"
+                         min={0}
+                         max={100}
+                         value={asset.contributionWeight}
+                         onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) || 0 })}
+                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       />
+                     </div>
+                     <input type="range" min={0} max={100} value={asset.contributionWeight}
+                       onChange={(e) => updateAsset(i, { contributionWeight: Number(e.target.value) })}
+                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                   </div>
+                   <div>
+                     <div className="flex justify-between items-center mb-1">
+                       <span className="text-gray-600">{t('pledgeRatio') || 'Pledge Ratio'}</span>
+                       <input
+                         type="number"
+                         min={0}
+                         max={100}
+                         value={(asset.pledgeRatio * 100).toFixed(0)}
+                         onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 || 0 })}
+                         className="w-14 px-2 py-1 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                       />
+                     </div>
+                     <input type="range" min={0} max={100} value={asset.pledgeRatio * 100}
+                       onChange={(e) => updateAsset(i, { pledgeRatio: Number(e.target.value) / 100 })}
+                       className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-yellow-600" />
+                   </div>
+                </div>
+              )
+            })}
+
+            {/* Add Asset */}
+            <div className="flex gap-2">
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) addAsset(e.target.value) }}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">+ {t('addAsset') || 'Add Asset'}</option>
+                {dataSources
+                  .filter((ds) => !profile.assets.some((a) => a.dataSourceId === ds.id))
+                  .map((ds) => (
+                    <option key={ds.id} value={ds.id}>{ds.name} ({ds.multiplier}x)</option>
+                  ))}
+              </select>
             </div>
 
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span>{profile.config.indexName}</span>
-                <span className="font-bold">{profile.config.indexWeight}%</span>
+            {/* Cash display */}
+            <div className="flex justify-between text-xs text-slate-400 pt-1 border-t border-slate-100">
+              <span>{t('cash')}</span>
+              <span className="font-bold">{Math.max(0, 100 - profile.assets.reduce((s, a) => s + a.targetWeight, 0))}%</span>
+            </div>
+            {profile.assets.reduce((s, a) => s + a.targetWeight, 0) > 100 && (
+              <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                <AlertOctagon className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                <p className="text-[11px] text-red-700">{t('targetWeightOver100')}</p>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={profile.config.indexWeight}
-                onChange={(e) => {
-                  const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { indexWeight: val }
-                  if (val + profile.config.leveragedWeight > 100)
-                    updates.leveragedWeight = Math.max(0, 100 - val)
-                  updateProfile(profile.id, updates)
-                }}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span>{profile.config.leveragedName}</span>
-                <span className="font-bold">{profile.config.leveragedWeight}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={profile.config.leveragedWeight}
-                onChange={(e) => {
-                  const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { leveragedWeight: val }
-                  if (val + profile.config.indexWeight > 100)
-                    updates.indexWeight = Math.max(0, 100 - val)
-                  updateProfile(profile.id, updates)
-                }}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-              />
-            </div>
-
-            <div className="text-xs text-center text-slate-400">
-              {t('cash')}: {cashWeight.toFixed(1)}%
-            </div>
-          </div>
-
-          {/* Contribution Allocation */}
-          <div className="space-y-4 pt-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-600 mb-2 border-b border-slate-100 pb-2">
-              <Coins className="w-4 h-4" /> {t('contributionAllocation')}
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span>
-                  {t('dcaPrefix')} ({profile.config.indexName})
-                </span>
-                <span className="font-bold">{profile.config.contributionIndexWeight}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={profile.config.contributionIndexWeight}
-                onChange={(e) => {
-                  const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { contributionIndexWeight: val }
-                  if (val + profile.config.contributionLeveragedWeight > 100)
-                    updates.contributionLeveragedWeight = Math.max(0, 100 - val)
-                  updateProfile(profile.id, updates)
-                }}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span>
-                  {t('dcaPrefix')} ({profile.config.leveragedName})
-                </span>
-                <span className="font-bold">{profile.config.contributionLeveragedWeight}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={profile.config.contributionLeveragedWeight}
-                onChange={(e) => {
-                  const val = Number(e.target.value)
-                  const updates: Partial<AssetConfig> = { contributionLeveragedWeight: val }
-                  if (val + profile.config.contributionIndexWeight > 100)
-                    updates.contributionIndexWeight = Math.max(0, 100 - val)
-                  updateProfile(profile.id, updates)
-                }}
-                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-              />
-            </div>
-            <div className="text-xs text-center text-slate-400">
-              {t('dcaCash')}: {contribCashWeight.toFixed(1)}%
-            </div>
+            )}
           </div>
 
           {/* Stock Pledge / Leverage */}
@@ -894,6 +761,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             {profile.config.leverage?.enabled && (
               <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
+                {profile.assets.every((a) => a.pledgeRatio === 0) && (profile.config.leverage.cashPledgeRatio ?? 0.95) === 0 && (
+                  <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                    <AlertOctagon className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-red-700">{t('zeroPledgeWarning')}</p>
+                  </div>
+                )}
                 {/* Row 1: Interest Rate & Max LTV */}
                 <div className="grid grid-cols-1 gap-3">
                   <div>
@@ -971,24 +844,8 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                   </div>
                 </div>
 
-                {/* Row 2: Pledge Ratios */}
-                <div className="grid grid-cols-2 gap-3 bg-yellow-100/50 p-2 rounded-lg">
-                  <div>
-                    <label className="text-[10px] text-yellow-800 uppercase font-bold">
-                      {t('pledgeRatioQQQ')} ({profile.config.indexName})
-                    </label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      max="1"
-                      value={profile.config.leverage.indexPledgeRatio ?? 0.7}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        updateLeverage(profile.id, { indexPledgeRatio: Number(e.target.value) })
-                      }
-                      className="w-full px-2 py-1.5 border border-yellow-200 rounded outline-none text-sm"
-                    />
-                  </div>
+                {/* Row 2: Cash Pledge Ratio */}
+                <div className="bg-yellow-100/50 p-2 rounded-lg">
                   <div>
                     <label className="text-[10px] text-yellow-800 uppercase font-bold">
                       {t('pledgeRatioCash')}
@@ -1003,22 +860,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
                         updateLeverage(profile.id, { cashPledgeRatio: Number(e.target.value) })
                       }
                       className="w-full px-2 py-1.5 border border-yellow-200 rounded outline-none text-sm"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-[10px] text-yellow-800 uppercase font-bold">
-                      {t('pledgeRatioQLD')} ({profile.config.leveragedName})
-                    </label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      max="1"
-                      value={profile.config.leverage.leveragedPledgeRatio ?? 0.0}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        updateLeverage(profile.id, { leveragedPledgeRatio: Number(e.target.value) })
-                      }
-                      className="w-full px-2 py-1.5 border border-yellow-200 rounded outline-none text-sm text-yellow-900 bg-white focus:bg-white"
                     />
                   </div>
                 </div>
@@ -1141,23 +982,22 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           <Upload className="w-3.5 h-3.5" /> {t('dataSource')}
         </h3>
 
-        {savedSources.length === 0 && (
-          <p className="text-xs text-slate-400 italic">{t('noDataSources') || 'No custom sources yet'}</p>
+        {dataSources.filter((ds) => !ds.id.startsWith('builtin-')).length === 0 && (
+          <p className="text-xs text-slate-400 italic">{t('noDataSources')}</p>
         )}
-        {savedSources.map((src) => (
+        {dataSources.filter((ds) => !ds.id.startsWith('builtin-')).map((ds) => (
           <div
-            key={src.id}
-            className="flex items-center gap-3 p-3 rounded-lg border border-slate-200"
+            key={ds.id}
+            className="flex items-center justify-between p-2 border rounded mb-1"
           >
-            {!isValidSource(src) && (
-              <span title="Invalid format: needs 2 lines (dates + prices)">
-                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-              </span>
-            )}
-            <span className="flex-1 text-sm font-medium text-slate-700">{src.name}</span>
+            <div>
+              <span className="font-medium text-sm">{ds.name}</span>
+              <span className="text-xs text-gray-500 ml-2">{ds.multiplier}x</span>
+              <span className="text-xs text-gray-400 ml-2">{ds.data[0]?.date} → {ds.data[ds.data.length - 1]?.date}</span>
+            </div>
             <button
-              onClick={() => onDeleteSource(src.id)}
-              className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors"
+              onClick={() => onDeleteSource(ds.id)}
+              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
               title={t('deleteProfile')}
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -1165,88 +1005,75 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           </div>
         ))}
 
-        {/* New custom source */}
+        {/* Add New Data Source */}
         <details className="rounded-lg border border-slate-200 [&_summary::-webkit-details-marker]:hidden">
           <summary className="flex items-center gap-2 p-3 text-sm font-medium text-slate-600 cursor-pointer hover:bg-slate-50 rounded-lg select-none">
-            <Plus className="w-4 h-4" /> {t('customData')}
+            <Plus className="w-4 h-4" /> {t('addDataSource')}
           </summary>
           <div className="px-3 pb-3 space-y-3 border-t border-slate-100 pt-3">
-            <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                {t('dataSourceName')}
-              </label>
-              <input
-                id="new-source-name"
-                type="text"
-                placeholder="SPY/SSO"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                1x ({t('indexAsset')})
-              </label>
-              <input
-                id="new-source-file1"
-                type="file"
-                accept=".txt"
-                className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by a space</p>
-            </div>
-            <div>
-              <label className="text-[10px] text-slate-500 uppercase font-bold mb-1 block">
-                2x ({t('leveragedAsset')})
-              </label>
-              <input
-                id="new-source-file2"
-                type="file"
-                accept=".txt"
-                className="w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-              />
-              <p className="text-[10px] text-slate-400 mt-0.5">Format: dates (YYYYMMDD) on line 1, prices on line 2; or dates then prices on one line separated by a space</p>
-            </div>
+            <input
+              type="text"
+              placeholder={t('dataSourceNamePlaceholder')}
+              value={newSourceName}
+              onChange={(e) => setNewSourceName(e.target.value)}
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="number"
+              placeholder={t('multiplierPlaceholder')}
+              min={1}
+              step={1}
+              value={newSourceMultiplier}
+              onChange={(e) => setNewSourceMultiplier(Number(e.target.value))}
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="file"
+              accept=".txt"
+              onChange={handleFileUpload}
+              className="text-sm text-slate-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            />
+            <p className="text-[10px] text-slate-400">{t('fileFormatHint')}</p>
             <button
-              onClick={() => {
-                const nameInput = document.getElementById('new-source-name') as HTMLInputElement
-                const file1Input = document.getElementById('new-source-file1') as HTMLInputElement
-                const file2Input = document.getElementById('new-source-file2') as HTMLInputElement
-                const file1 = file1Input?.files?.[0]
-                const file2 = file2Input?.files?.[0]
-                const name = nameInput?.value?.trim()
-                if (!name || !file1 || !file2) return
-                Promise.all([
-                  new Promise<string>((resolve) => {
-                    const r = new FileReader()
-                    r.onload = () => resolve(r.result as string)
-                    r.readAsText(file1)
-                  }),
-                  new Promise<string>((resolve) => {
-                    const r = new FileReader()
-                    r.onload = () => resolve(r.result as string)
-                    r.readAsText(file2)
-                  }),
-                ]).then(([asset1Txt, asset2Txt]) => {
-                  const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4)
-                  try {
-                    const a1 = aggregateToMonthly(parseTxtFile(asset1Txt))
-                    const a2 = aggregateToMonthly(parseTxtFile(asset2Txt))
-                    const marketData = buildMarketData(a1, a2)
-                    onSaveSource({ id, name, marketData })
-                  } catch (e) {
-                    alert('Invalid file format. Each file needs 2 lines: dates (YYYYMMDD) on line 1, prices on line 2.')
-                  }
-                  nameInput.value = ''
-                  file1Input.value = ''
-                  file2Input.value = ''
-                })
-              }}
-              className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+              onClick={handleSaveSource}
+              disabled={!newSourceName || newSourceMultiplier < 1 || !fileContent}
+              className="w-full py-2 bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {t('save')}
+              <Upload className="w-4 h-4" /> {t('saveSource')}
             </button>
           </div>
         </details>
+      </div>
+
+      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-3 mb-4">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+          <Calendar className="w-4 h-4 text-blue-600" />
+          {t('backtestWindow')}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] text-slate-500 uppercase font-bold">
+              {t('startMonth')}
+            </label>
+            <input
+              type="month"
+              value={backtestStartMonth}
+              onChange={(e) => onBacktestWindowChange(e.target.value, backtestEndMonth)}
+              className="w-full px-2 py-2 border border-slate-300 rounded-lg outline-none text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-slate-500 uppercase font-bold">
+              {t('endMonth')}
+            </label>
+            <input
+              type="month"
+              value={backtestEndMonth}
+              onChange={(e) => onBacktestWindowChange(backtestStartMonth, e.target.value)}
+              className="w-full px-2 py-2 border border-slate-300 rounded-lg outline-none text-sm"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -1254,14 +1081,27 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           <div
             key={profile.id}
             data-testid="profile-card"
-            onClick={() => setEditingProfileId(profile.id)}
-            className="group relative rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer bg-white overflow-hidden"
+            onClick={() => { if (profile.enabled !== false) setEditingProfileId(profile.id) }}
+            className={`group relative rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer bg-white overflow-hidden ${profile.enabled === false ? 'opacity-50' : ''}`}
             style={{ borderLeft: `4px solid ${profile.color}` }}
           >
             {/* Header: Name and Management Actions */}
             <div className="flex justify-between items-center px-4 pt-3 mb-1">
               <div className="flex items-center gap-2 overflow-hidden">
-                <span className="font-bold text-slate-800 text-sm truncate">{profile.name}</span>
+                <label className="relative inline-flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={profile.enabled !== false}
+                    onChange={(e) => {
+                      onProfilesChange((prev: Profile[]) =>
+                        prev.map((p) => p.id === profile.id ? { ...p, enabled: e.target.checked } : p),
+                      )
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-7 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                </label>
+                <span className={`font-bold text-sm truncate ${profile.enabled === false ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{profile.name}</span>
               </div>
               <div className="flex gap-0.5">
                 <button
@@ -1291,27 +1131,14 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               </div>
 
               <div className="flex flex-wrap gap-x-3 gap-y-1.5 items-center">
-                <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                  <span className="text-slate-400 font-sans uppercase text-[9px]">Init</span>
-                  <div className="flex bg-slate-50 rounded border border-slate-100 divide-x divide-slate-100 overflow-hidden">
-                    <span className="px-1.5 py-0.5 text-blue-600 font-bold">
-                      {profile.config.indexWeight}
+                {profile.assets.map((asset) => {
+                  const source = dataSources.find((s) => s.id === asset.dataSourceId)
+                  return (
+                    <span key={asset.dataSourceId} className="text-[10px] font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                      {source?.name || asset.dataSourceId}: {asset.targetWeight}% / {asset.contributionWeight}%
                     </span>
-                    <span className="px-1.5 py-0.5 text-purple-600 font-bold">
-                      {profile.config.leveragedWeight}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                  <span className="text-slate-400 font-sans uppercase text-[9px]">DCA</span>
-                  <div className="flex bg-slate-50 rounded border border-slate-100 divide-x divide-slate-100 overflow-hidden text-slate-500">
-                    <span className="px-1.5 py-0.5">{profile.config.contributionIndexWeight}</span>
-                    <span className="px-1.5 py-0.5 text-purple-400">
-                      {profile.config.contributionLeveragedWeight}
-                    </span>
-                  </div>
-                </div>
+                  )
+                })}
 
                 {profile.config.leverage?.enabled && (
                   <div className="flex items-center gap-1 text-[10px] font-mono text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded border border-yellow-100">
@@ -1331,7 +1158,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               }`}
             >
               <div className="flex gap-1">
-                {hasResults && (
+                {hasResults && profile.enabled !== false && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation()

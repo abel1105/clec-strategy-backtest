@@ -309,17 +309,26 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results }) =
     ;(window as unknown as { __CHART_GLOBAL_MAX: number }).__CHART_GLOBAL_MAX = dataMaxVal
   }
 
-  // Prepare Chart Data (Growth)
+  /** Build sorted date array that exists in ALL results (intersection) */
+  const getCommonDates = (results: SimulationResult[]): string[] => {
+    if (results.length === 0) return []
+    const sets = results.map((r) => new Set(r.history.map((h) => h.date)))
+    const common = [...sets.reduce((acc, s) => new Set([...acc].filter((d) => s.has(d))))].sort()
+    return common
+  }
+
+  // Prepare Chart Data (Growth) — intersection of all result dates
   const chartData = React.useMemo(() => {
-    if (!results || results.length === 0 || !results[0]) return []
-    return results[0].history.map((_, idx) => {
-      const row: Record<string, string | number> = { date: results[0].history[idx].date }
-      results.forEach((res) => {
-        // If history stops early (due to bankruptcy optimization), use 0 or last val
-        const val = res.history[idx]?.totalValue ?? 0
-        row[res.strategyName] = val
-      })
-      // Add dummy point to anchor Y-axis (hidden in Line)
+    if (!results || results.length === 0) return []
+    const dates = getCommonDates(results)
+    const valMaps = results.map((res) => {
+      const m: Record<string, number> = {}
+      for (const h of res.history) m[h.date] = h.totalValue
+      return { name: res.strategyName, map: m }
+    })
+    return dates.map((date) => {
+      const row: Record<string, string | number> = { date }
+      for (const vm of valMaps) row[vm.name] = vm.map[date] ?? 0
       row['_yAnchor'] = growthConfig.maxBound
       return row
     })
@@ -352,45 +361,58 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({ results }) =
     return getCleanAxisConfig(min, max)
   }, [visibleChartData, results, growthConfig, zoomState])
 
-  // Prepare Drawdown Data
+  // Prepare Drawdown Data — intersection of all result dates
   const drawdownData = React.useMemo(() => {
-    if (!results || results.length === 0 || !results[0]) return []
-    const data = results[0].history.map((h) => ({ date: h.date }))
-    results.forEach((res) => {
+    if (!results || results.length === 0) return []
+    const dates = getCommonDates(results)
+    // pre-compute drawdown per result
+    const ddMaps: { name: string; map: Record<string, number> }[] = results.map((res) => {
       let peak = -Infinity
-      res.history.forEach((h, idx) => {
+      const m: Record<string, number> = {}
+      for (const h of res.history) {
         if (h.totalValue > peak) peak = h.totalValue
-        const dd = peak === 0 ? 0 : ((h.totalValue - peak) / peak) * 100
-        // Clamp to -100% as you cannot lose more than 100% of peak
-        ;(data[idx] as Record<string, string | number>)[res.strategyName] = Math.max(-100, dd)
-      })
+        m[h.date] = peak === 0 ? 0 : Math.max(-100, ((h.totalValue - peak) / peak) * 100)
+      }
+      return { name: res.strategyName, map: m }
     })
-    return data
+    return dates.map((date) => {
+      const row: Record<string, string | number> = { date }
+      for (const dd of ddMaps) row[dd.name] = dd.map[date] ?? 0
+      return row
+    })
   }, [results])
 
   // Prepare LTV Data (Only for leveraged profiles)
   const leveragedProfiles = results.filter((r) => r.isLeveraged)
   const ltvData = React.useMemo(() => {
-    if (!results || results.length === 0 || !results[0] || leveragedProfiles.length === 0) return []
-    const data = results[0].history.map((h) => ({ date: h.date }))
-    leveragedProfiles.forEach((res) => {
-      res.history.forEach((h, idx) => {
-        ;(data[idx] as Record<string, string | number>)[res.strategyName] = h.ltv
-      })
+    if (leveragedProfiles.length === 0) return []
+    const dates = getCommonDates(results)
+    const valMaps = leveragedProfiles.map((res) => {
+      const m: Record<string, number> = {}
+      for (const h of res.history) m[h.date] = h.ltv
+      return { name: res.strategyName, map: m }
     })
-    return data
+    return dates.map((date) => {
+      const row: Record<string, string | number> = { date }
+      for (const vm of valMaps) row[vm.name] = vm.map[date] ?? 0
+      return row
+    })
   }, [results, leveragedProfiles])
 
-  // Prepare Beta Data
+  // Prepare Beta Data — intersection of all result dates
   const betaData = React.useMemo(() => {
-    if (!results || results.length === 0 || !results[0]) return []
-    const data = results[0].history.map((h) => ({ date: h.date }))
-    results.forEach((res) => {
-      res.history.forEach((h, idx) => {
-        ;(data[idx] as Record<string, string | number>)[res.strategyName] = h.beta
-      })
+    if (!results || results.length === 0) return []
+    const dates = getCommonDates(results)
+    const valMaps = results.map((res) => {
+      const m: Record<string, number> = {}
+      for (const h of res.history) m[h.date] = h.beta
+      return { name: res.strategyName, map: m }
     })
-    return data
+    return dates.map((date) => {
+      const row: Record<string, string | number> = { date }
+      for (const vm of valMaps) row[vm.name] = vm.map[date] ?? 0
+      return row
+    })
   }, [results])
 
   // Prepare Cash Data for ALL profiles that have cash usage

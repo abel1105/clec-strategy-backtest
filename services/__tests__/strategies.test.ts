@@ -1,45 +1,44 @@
 import { describe, it, expect } from 'vitest'
 import { strategyNoRebalance, strategyRebalance, strategySmart } from '../strategies'
-import { AssetConfig, MarketDataRow, PortfolioState } from '../../types'
+import { PortfolioState, MonthlyContext, AssetEntry, ProfileConfig } from '../../types'
 
-const mockConfig: AssetConfig = {
+const testAssets: AssetEntry[] = [
+  { dataSourceId: 'A', targetWeight: 60, contributionWeight: 50, pledgeRatio: 0.7 },
+  { dataSourceId: 'B', targetWeight: 40, contributionWeight: 50, pledgeRatio: 0.5 },
+]
+
+const testConfig: ProfileConfig = {
   initialCapital: 10000,
   contributionAmount: 1000,
-  contributionIntervalMonths: 1, // Monthly
+  contributionIntervalMonths: 1,
   yearlyContributionMonth: 12,
-  indexName: 'QQQ',
-  leveragedName: 'QLD',
-  indexWeight: 60,
-  leveragedWeight: 40,
-  contributionIndexWeight: 50,
-  contributionLeveragedWeight: 50, // Different from initial for testing
   cashYieldAnnual: 4,
+  annualExpenseAmount: 2000,
+  cashCoverageYears: 15,
   leverage: {
     enabled: false,
-    interestRate: 0,
-    indexPledgeRatio: 0.7,
-    leveragedPledgeRatio: 0,
+    interestRate: 5,
     cashPledgeRatio: 0.95,
-    maxLtv: 2,
+    maxLtv: 100,
     withdrawType: 'PERCENT',
     withdrawValue: 0,
-    inflationRate: 0,
+    inflationRate: 3,
     interestType: 'CAPITALIZED',
     ltvBasis: 'TOTAL_ASSETS',
   },
 }
 
-const mockMarketData: MarketDataRow = {
-  date: '2020-01-01',
-  indexClose: 100,
-  leveragedClose: 50,
-  indexLow: 100,
-  leveragedLow: 50,
-}
+const ctx = (date: string, prices: Record<string, number>, monthIndex: number): MonthlyContext => ({
+  date,
+  prices,
+  lows: Object.fromEntries(Object.keys(prices).map((k) => [k, prices[k]])),
+  multipliers: Object.fromEntries(Object.keys(prices).map((k) => [k, 1])),
+  monthIndex,
+})
 
-const mockState: PortfolioState = {
-  date: '2019-12-01',
-  shares: { INDEX: 0, LEVERAGED: 0 },
+const empty = (): PortfolioState => ({
+  date: '',
+  shares: {},
   cashBalance: 0,
   debtBalance: 0,
   accruedInterest: 0,
@@ -48,88 +47,74 @@ const mockState: PortfolioState = {
   ltv: 0,
   beta: 0,
   events: [],
-}
+})
 
-describe('Strategies', () => {
-  describe('strategyNoRebalance', () => {
-    it('should allocate initial capital correctly on month 0', () => {
-      const newState = strategyNoRebalance(mockState, mockMarketData, mockConfig, 0)
+describe('strategyNoRebalance', () => {
+  it('initial allocation uses targetWeight', () => {
+    const state = empty()
+    const result = strategyNoRebalance(state, ctx('2020-01-01', { A: 100, B: 100 }, 0), testAssets, testConfig)
 
-      // Initial: 10000. INDEX=60% (6000), LEVERAGED=40% (4000). Prices: INDEX=100, LEVERAGED=50.
-      expect(newState.shares.INDEX).toBe(60) // 6000 / 100
-      expect(newState.shares.LEVERAGED).toBe(80) // 4000 / 50
-      expect(newState.cashBalance).toBe(0)
-    })
-
-    it('should perform DCA on subsequent months', () => {
-      // Setup state with some shares
-      const state = { ...mockState, shares: { INDEX: 10, LEVERAGED: 10 }, cashBalance: 0 }
-      const nextMonthData = { ...mockMarketData, date: '2020-02-01' } // Month 1
-
-      const newState = strategyNoRebalance(state, nextMonthData, mockConfig, 1)
-
-      // Contribution: 1000. Weights: 50/50.
-      // Buy INDEX: 500 / 100 = 5 shares.
-      // Buy LEVERAGED: 500 / 50 = 10 shares.
-      expect(newState.shares.INDEX).toBe(15) // 10 + 5
-      expect(newState.shares.LEVERAGED).toBe(20) // 10 + 10
-    })
+    // A: 60% of 10000 / 100 = 60 shares
+    // B: 40% of 10000 / 100 = 40 shares
+    expect(result.shares['A']).toBe(60)
+    expect(result.shares['B']).toBe(40)
+    expect(result.cashBalance).toBe(0)
   })
 
-  describe('strategyRebalance', () => {
-    it('should rebalance to target weights in January', () => {
-      // Month 12 => January of next year usually (if start is Jan).
-      // Let's say we are at month 12, date 2021-01-01.
-      const janData = { ...mockMarketData, date: '2021-01-01' }
+  it('DCA uses contributionWeight', () => {
+    const state = { ...empty(), shares: { A: 10, B: 10 } }
+    const result = strategyNoRebalance(state, ctx('2020-02-01', { A: 100, B: 100 }, 1), testAssets, testConfig)
 
-      // Setup skewed portfolio
-      // Target: 60/40.
-      // Current Value: 10000. IF INDEX=100, LEVERAGED=50.
-      // Let's have all in INDEX. INDEX=100 shares ($10000). LEVERAGED=0.
-      const state = {
-        ...mockState,
-        shares: { INDEX: 100, LEVERAGED: 0 },
-        totalValue: 10000,
-      }
+    // contributionWeight 50/50, contribution 1000
+    // A: 10 + 500/100 = 15, B: 10 + 500/100 = 15
+    expect(result.shares['A']).toBe(15)
+    expect(result.shares['B']).toBe(15)
+    // cashBalance unchanged (contributions are external deposits)
+    expect(result.cashBalance).toBe(0)
+  })
+})
 
-      // Month index 12 (not 0, so NOT first month)
-      const newState = strategyRebalance(state, janData, mockConfig, 12)
+describe('strategyRebalance', () => {
+  it('rebalances to target weights in January', () => {
+    const state = { ...empty(), shares: { A: 100, B: 0 } }
+    // Month 12, January of next year
+    const result = strategyRebalance(state, ctx('2021-01-01', { A: 100, B: 100 }, 12), testAssets, testConfig)
 
-      // Total Value 10000 + Contribution 1000 = 11000 roughly?
-      // Wait, strategyRebalance calls strategyNoRebalance first which adds contribution.
-      // Contribution: 1000. 50/50. INDEX+5 ($500), LEVERAGED+10 ($500).
-      // Pre-rebalance holdings: INDEX=105, LEVERAGED=10. Value: 10500 + 500 = 11000.
-      // Target Rebalance: 60% INDEX, 40% LEVERAGED of 11000.
-      // INDEX: 6600 -> 66 shares.
-      // LEVERAGED: 4400 -> 88 shares.
-
-      expect(newState.shares.INDEX).toBeCloseTo(66)
-      expect(newState.shares.LEVERAGED).toBeCloseTo(88)
-    })
-
-    it('should NOT rebalance in non-January months', () => {
-      const febData = { ...mockMarketData, date: '2021-02-01' }
-      const state = { ...mockState, shares: { INDEX: 100, LEVERAGED: 0 } }
-
-      // Call rebalance
-      const newState = strategyRebalance(state, febData, mockConfig, 13)
-
-      // Should only do DCA.
-      // DCA: +5 INDEX, +10 LEVERAGED.
-      // Result: 105 INDEX, 10 LEVERAGED.
-      expect(newState.shares.INDEX).toBe(105)
-      expect(newState.shares.LEVERAGED).toBe(10)
-    })
+    // After strategyNoRebalance: A=105, B=5, cash=0
+    // totalVal = 105*100 + 5*100 = 11000
+    // A target = 11000 * 0.6 / 100 = 66
+    // B target = 11000 * 0.4 / 100 = 44
+    expect(result.shares['A']).toBe(66)
+    expect(result.shares['B']).toBe(44)
+    expect(result.cashBalance).toBe(0)
   })
 
-  describe('strategySmart', () => {
-    it('initializes memory correctly', () => {
-      const newState = strategySmart(mockState, mockMarketData, mockConfig, 0)
-      expect(newState.strategyMemory.currentYear).toBe(2020)
-      expect(newState.strategyMemory.startLeveragedVal).toBeDefined()
-    })
+  it('does not rebalance in non-January', () => {
+    const state = { ...empty(), shares: { A: 100, B: 0 } }
+    const result = strategyRebalance(state, ctx('2021-02-01', { A: 100, B: 100 }, 13), testAssets, testConfig)
 
-    // More complex tests for profit taking/dip buying could be added here
-    // simulating a December check.
+    // Only DCA: A=105, B=5
+    expect(result.shares['A']).toBe(105)
+    expect(result.shares['B']).toBe(5)
+  })
+})
+
+describe('strategySmart', () => {
+  it('tilts from worst to best performer at year end', () => {
+    // Use a config with no contributions for clean math
+    const config: ProfileConfig = { ...testConfig, contributionAmount: 0 }
+    const state = { ...empty(), shares: { A: 100, B: 100 } }
+    // December (month 11), A price=50 (worst), B price=200 (best)
+    const result = strategySmart(state, ctx('2020-12-01', { A: 50, B: 200 }, 11), testAssets, config)
+
+    // vals: A = 100*50 = 5000, B = 100*200 = 20000
+    // best=B, worst=A
+    // transfer = 20000 * 0.02 = 400
+    // sharesToSell = min(400/50, 100) = 8
+    // A: 100 - 8 = 92
+    // B: 100 + (8*50)/200 = 100 + 2 = 102
+    expect(result.shares['A']).toBeCloseTo(92)
+    expect(result.shares['B']).toBeCloseTo(102)
+    expect(result.strategyMemory.lastAction).toContain('Tilt')
   })
 })
