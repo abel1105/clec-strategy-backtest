@@ -32,6 +32,8 @@ export const runBacktest = (
   config: ProfileConfig,
   strategyName: string,
   color: string = '#000000',
+  startMonth?: string,
+  endMonth?: string,
 ): SimulationResult => {
   const history: PortfolioState[] = []
 
@@ -53,7 +55,12 @@ export const runBacktest = (
     : []
   commonMonths.sort()
 
-  if (commonMonths.length === 0) {
+  // Apply optional month window
+  const filteredMonths = startMonth || endMonth
+    ? commonMonths.filter((m) => (!startMonth || m >= startMonth) && (!endMonth || m <= endMonth))
+    : commonMonths
+
+  if (filteredMonths.length === 0) {
     return {
       strategyName,
       color,
@@ -79,7 +86,7 @@ export const runBacktest = (
   }
 
   let currentState: PortfolioState = {
-    date: commonMonths[0],
+    date: filteredMonths[0],
     shares: {},
     cashBalance: config.initialCapital,
     debtBalance: 0,
@@ -102,8 +109,8 @@ export const runBacktest = (
   let isBankrupt = false
   let bankruptcyDate: string | null = null
 
-  for (let monthIdx = 0; monthIdx < commonMonths.length; monthIdx++) {
-    const date = commonMonths[monthIdx]
+  for (let monthIdx = 0; monthIdx < filteredMonths.length; monthIdx++) {
+    const date = filteredMonths[monthIdx]
     const monthEvents: FinancialEvent[] = []
 
     // Emit initial capital as deposit on first month
@@ -381,7 +388,7 @@ export const runBacktest = (
   }
 
   // Calculate Metrics
-  const years = commonMonths.length / 12
+  const years = filteredMonths.length / 12
   const finalState = history[history.length - 1]
   const initialInv = config.initialCapital
 
@@ -396,7 +403,7 @@ export const runBacktest = (
         config.contributionAmount,
         config.contributionIntervalMonths,
         finalState.totalValue,
-        commonMonths.length,
+        filteredMonths.length,
       )
 
   const metrics = {

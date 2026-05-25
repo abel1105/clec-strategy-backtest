@@ -111,6 +111,31 @@ const MainApp = () => {
     return BUILT_IN_DATA_SOURCES
   })
 
+  const initialBacktestWindow = (() => {
+    const dates = BUILT_IN_DATA_SOURCES.flatMap((s) => s.data.map((r) => r.date))
+    const globalMin = dates.length > 0 ? dates.reduce((a, b) => (a < b ? a : b)) : ''
+    const globalMax = dates.length > 0 ? dates.reduce((a, b) => (a > b ? a : b)) : ''
+    const getSaved = (key: string, fallback: string) => {
+      const saved = localStorage.getItem(key)
+      if (!saved || saved < globalMin || saved > globalMax) return fallback
+      return saved
+    }
+    const startMonth = getSaved('app_backtest_start_month', globalMin)
+    const endMonth = getSaved('app_backtest_end_month', globalMax)
+    if (startMonth > endMonth) return { startMonth: globalMin, endMonth: globalMax }
+    return { startMonth, endMonth }
+  })()
+
+  const [backtestWindow, setBacktestWindow] = useState(initialBacktestWindow)
+
+  useEffect(() => {
+    localStorage.setItem('app_backtest_start_month', backtestWindow.startMonth)
+  }, [backtestWindow.startMonth])
+
+  useEffect(() => {
+    localStorage.setItem('app_backtest_end_month', backtestWindow.endMonth)
+  }, [backtestWindow.endMonth])
+
   const buildSimulationInput = useCallback(
     (profile: Profile): { assetData: Record<string, AssetDataRow[]>; multipliers: Record<string, number>; assets: AssetEntry[]; config: ProfileConfig } | null => {
       const assetData: Record<string, AssetDataRow[]> = {}
@@ -182,7 +207,7 @@ const MainApp = () => {
         if (!input) continue
         const strategyFunc = getStrategyByType(profile.strategyType)
         newResults.push(
-          runBacktest(input.assetData, input.multipliers, strategyFunc, input.assets, input.config, profile.name, profile.color),
+          runBacktest(input.assetData, input.multipliers, strategyFunc, input.assets, input.config, profile.name, profile.color, backtestWindow.startMonth, backtestWindow.endMonth),
         )
       }
 
@@ -197,7 +222,7 @@ const MainApp = () => {
               { dataSourceId: assetId, targetWeight: 100, contributionWeight: 100, pledgeRatio: 0.7 },
             ]
             newResults.push(
-              runBacktest(firstInput.assetData, firstInput.multipliers, getStrategyByType('NO_REBALANCE'), benchAssets, profiles[0].config, `Benchmark: ${source.name}`, '#64748b'),
+              runBacktest(firstInput.assetData, firstInput.multipliers, getStrategyByType('NO_REBALANCE'), benchAssets, profiles[0].config, `Benchmark: ${source.name}`, '#64748b', backtestWindow.startMonth, backtestWindow.endMonth),
             )
           }
         }
@@ -208,7 +233,7 @@ const MainApp = () => {
       setIsCalculating(false)
       if (window.innerWidth < 1024) setSidebarOpen(false)
     }, 100)
-  }, [profiles, showBenchmarks, buildSimulationInput, dataSources])
+  }, [profiles, showBenchmarks, buildSimulationInput, dataSources, backtestWindow])
 
   useEffect(() => {
     handleRunSimulation()
@@ -414,6 +439,12 @@ const MainApp = () => {
                     return Array.from(existing.values())
                   })
                 }
+              }}
+              backtestStartMonth={backtestWindow.startMonth}
+              backtestEndMonth={backtestWindow.endMonth}
+              onBacktestWindowChange={(startMonth, endMonth) => {
+                setBacktestWindow({ startMonth, endMonth })
+                setIsCalculated(false)
               }}
             />
 

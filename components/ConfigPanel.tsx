@@ -19,6 +19,7 @@ import {
   Upload,
   Copy,
   Sparkles,
+  Calendar,
 } from 'lucide-react'
 import { useTranslation } from '../services/i18n'
 import { parseTxtFile, aggregateToMonthly, monthlyPointsToAssetData } from '../services/dataLoader'
@@ -35,6 +36,9 @@ interface ConfigPanelProps {
   onSaveSource: (source: DataSource) => void
   onDeleteSource: (sourceId: string) => void
   onImportData: (data: { profiles: Profile[]; dataSources: DataSource[] }) => void
+  backtestStartMonth: string
+  backtestEndMonth: string
+  onBacktestWindowChange: (startMonth: string, endMonth: string) => void
 }
 
 // High-contrast palette for distinct chart lines
@@ -84,6 +88,9 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   onSaveSource,
   onDeleteSource,
   onImportData,
+  backtestStartMonth,
+  backtestEndMonth,
+  onBacktestWindowChange,
 }) => {
   const { t } = useTranslation()
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
@@ -1036,6 +1043,37 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             </button>
           </div>
         </details>
+      </div>
+
+      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-3 mb-4">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+          <Calendar className="w-4 h-4 text-blue-600" />
+          {t('backtestWindow')}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] text-slate-500 uppercase font-bold">
+              {t('startMonth')}
+            </label>
+            <input
+              type="month"
+              value={backtestStartMonth}
+              onChange={(e) => onBacktestWindowChange(e.target.value, backtestEndMonth)}
+              className="w-full px-2 py-2 border border-slate-300 rounded-lg outline-none text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-slate-500 uppercase font-bold">
+              {t('endMonth')}
+            </label>
+            <input
+              type="month"
+              value={backtestEndMonth}
+              onChange={(e) => onBacktestWindowChange(backtestStartMonth, e.target.value)}
+              className="w-full px-2 py-2 border border-slate-300 rounded-lg outline-none text-sm"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="space-y-4">

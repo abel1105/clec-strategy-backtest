@@ -19,3 +19,8 @@ export const BUILT_IN_DATA_SOURCES: DataSource[] = [
   { id: 'builtin-anlian', name: '安聯台灣科技', multiplier: 1, data: monthlyPointsToAssetData(historyAnlian) },
   { id: 'builtin-beike', name: '貝科', multiplier: 1, data: monthlyPointsToAssetData(historyBeike) },
 ]
+
+// Compute the overall min/max month across all built-in data sources
+const allDates = BUILT_IN_DATA_SOURCES.flatMap((s) => s.data.map((r) => r.date))
+export const MIN_DATA_MONTH = allDates.length > 0 ? allDates.reduce((a, b) => (a < b ? a : b)) : ''
+export const MAX_DATA_MONTH = allDates.length > 0 ? allDates.reduce((a, b) => (a > b ? a : b)) : ''
