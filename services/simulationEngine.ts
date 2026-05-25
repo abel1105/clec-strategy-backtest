@@ -106,6 +106,15 @@ export const runBacktest = (
     const date = commonMonths[monthIdx]
     const monthEvents: FinancialEvent[] = []
 
+    // Emit initial capital as deposit on first month
+    if (monthIdx === 0 && config.initialCapital > 0) {
+      monthEvents.push({
+        type: 'DEPOSIT',
+        amount: config.initialCapital,
+        description: 'Recurring Contribution / Deposit',
+      })
+    }
+
     if (isBankrupt) {
       history.push({
         ...currentState,

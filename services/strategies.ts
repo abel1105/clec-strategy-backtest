@@ -9,6 +9,8 @@ interface CashAdequacyResult {
 interface StrategyMemory {
   currentYear?: number
   lastAction?: string
+  startLevVal?: number
+  yearInflow?: number
 }
 
 const checkCashAdequacy = (state: PortfolioState, config: ProfileConfig): CashAdequacyResult => {
@@ -35,11 +37,10 @@ export const strategyNoRebalance: StrategyFunction = (state, ctx, assets, config
 
   if (ctx.monthIndex === 0) {
     nextState.cashBalance = config.initialCapital
-    const totalTarget = assets.reduce((s, a) => s + a.targetWeight, 0)
     for (const asset of assets) {
       const price = ctx.prices[asset.dataSourceId]
       if (!price || price <= 0) continue
-      const amount = totalTarget > 0 ? config.initialCapital * (asset.targetWeight / totalTarget) : 0
+      const amount = config.initialCapital * (asset.targetWeight / 100)
       nextState.shares[asset.dataSourceId] = (nextState.shares[asset.dataSourceId] || 0) + amount / price
       nextState.cashBalance -= amount
     }
@@ -114,40 +115,97 @@ export const strategySmart: StrategyFunction = (state, ctx, assets, config) => {
 
 export const strategyFlexible1: StrategyFunction = (state, ctx, assets, config) => {
   const memory = { ...(state.strategyMemory as unknown as StrategyMemory) }
+  const isFirstMonth = ctx.monthIndex === 0
+  const currentYear = parseInt(ctx.date.substring(0, 4))
+  const currentMonth = parseInt(ctx.date.substring(5, 7)) - 1
+
+  // Identify index (lowest multiplier) and leveraged (highest multiplier) assets
+  const sorted = [...assets].sort(
+    (a, b) => (ctx.multipliers[a.dataSourceId] || 1) - (ctx.multipliers[b.dataSourceId] || 1),
+  )
+  const indexId = sorted[0]?.dataSourceId
+  const levId = sorted.length > 1 ? sorted[1].dataSourceId : indexId
+
+  // Year tracking (same pattern as original main branch)
+  if (isFirstMonth || memory.currentYear !== currentYear) {
+    memory.currentYear = currentYear
+    memory.yearInflow = 0
+    if (!isFirstMonth) {
+      memory.startLevVal = (state.shares[levId] || 0) * (ctx.prices[levId] || 0)
+    }
+  }
+
   const nextState = strategyNoRebalance(state, ctx, assets, config)
-  if (parseInt(ctx.date.substring(5, 7)) - 1 === 11) {
-    const { isAdequate, shortfall } = checkCashAdequacy(nextState, config)
-    if (!isAdequate && shortfall > 0) {
-      let totalVal = 0
-      const vals: Record<string, number> = {}
-      for (const a of assets) {
-        const v = (nextState.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0)
-        vals[a.dataSourceId] = v
-        totalVal += v
-      }
-      if (totalVal > 0) {
-        for (const a of assets) {
-          const portion = (vals[a.dataSourceId] || 0) / totalVal
-          const sellAmount = shortfall * portion
-          const price = ctx.prices[a.dataSourceId] || 1
-          const toSell = Math.min(sellAmount / price, nextState.shares[a.dataSourceId] || 0)
+
+  if (isFirstMonth) {
+    memory.startLevVal = (nextState.shares[levId] || 0) * (ctx.prices[levId] || 0)
+  }
+
+  // Track contribution inflow to leveraged asset
+  const levSharesDiff = (nextState.shares[levId] || 0) - (state.shares[levId] || 0)
+  if (levSharesDiff > 0 && (ctx.prices[levId] || 0) > 0) {
+    memory.yearInflow = (memory.yearInflow || 0) + levSharesDiff * (ctx.prices[levId] || 0)
+  }
+
+  if (currentMonth === 11) {
+    const { isAdequate } = checkCashAdequacy(nextState, config)
+    const currentLevVal = (nextState.shares[levId] || 0) * (ctx.prices[levId] || 0)
+    const profit = currentLevVal - ((memory.startLevVal || 0) + (memory.yearInflow || 0))
+
+    if (!isAdequate) {
+      // Defensive: restore cash buffer
+      if (profit > 0 && ctx.prices[levId] && (ctx.prices[levId] || 0) > 0) {
+        const sellAmount = profit / 3
+        const p = ctx.prices[levId] || 1
+        const toSell = Math.min(sellAmount / p, nextState.shares[levId] || 0)
+        if (toSell > 0.001) {
+          nextState.shares[levId] = (nextState.shares[levId] || 0) - toSell
+          nextState.cashBalance += toSell * p
+          memory.lastAction = `Defensive: Harvest Cash ${sellAmount.toFixed(0)}`
+        }
+      } else if (indexId && levId && indexId !== levId) {
+        // Bear: sell 2% total value from index -> buy leveraged
+        const totalVal = nextState.cashBalance + assets.reduce(
+          (s, a) => s + (nextState.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0), 0,
+        )
+        const transferAmount = totalVal * 0.02
+        const indexVal = (nextState.shares[indexId] || 0) * (ctx.prices[indexId] || 0)
+        const actualTransfer = Math.min(transferAmount, indexVal)
+        if (actualTransfer > 0.001) {
+          const ip = ctx.prices[indexId] || 1
+          const lp = ctx.prices[levId] || 1
+          const toSell = Math.min(actualTransfer / ip, nextState.shares[indexId] || 0)
           if (toSell > 0.001) {
-            nextState.shares[a.dataSourceId] = (nextState.shares[a.dataSourceId] || 0) - toSell
-            nextState.cashBalance += toSell * price
+            const proceeds = toSell * ip
+            nextState.shares[indexId] = (nextState.shares[indexId] || 0) - toSell
+            nextState.shares[levId] = (nextState.shares[levId] || 0) + proceeds / lp
+            memory.lastAction = `Defensive: ${indexId}->${levId} ${actualTransfer.toFixed(0)}`
           }
         }
       }
-      memory.lastAction = 'Flex1: Sell to Cash'
-    } else if (isAdequate && nextState.cashBalance > 0) {
-      const totalW = assets.reduce((s, a) => s + a.targetWeight, 0)
-      for (const a of assets) {
-        const price = ctx.prices[a.dataSourceId]
-        if (!price || price <= 0) continue
-        const invest = nextState.cashBalance * (a.targetWeight / totalW)
-        nextState.shares[a.dataSourceId] = (nextState.shares[a.dataSourceId] || 0) + invest / price
+    } else {
+      // Cash adequate -> Smart rebalance logic
+      if (profit > 0 && ctx.prices[levId] && (ctx.prices[levId] || 0) > 0) {
+        const sellAmount = profit / 3
+        const p = ctx.prices[levId] || 1
+        const toSell = Math.min(sellAmount / p, nextState.shares[levId] || 0)
+        if (toSell > 0.001) {
+          nextState.shares[levId] = (nextState.shares[levId] || 0) - toSell
+          nextState.cashBalance += toSell * p
+          memory.lastAction = `Adequate: Smart Profit ${sellAmount.toFixed(0)}`
+        }
+      } else if (levId && (ctx.prices[levId] || 0) > 0) {
+        const totalVal = nextState.cashBalance + assets.reduce(
+          (s, a) => s + (nextState.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0), 0,
+        )
+        const buyAmount = Math.min(totalVal * 0.02, nextState.cashBalance)
+        if (buyAmount > 0.001) {
+          const lp = ctx.prices[levId] || 1
+          nextState.shares[levId] = (nextState.shares[levId] || 0) + buyAmount / lp
+          nextState.cashBalance -= buyAmount
+          memory.lastAction = `Adequate: Buy Dip ${buyAmount.toFixed(0)}`
+        }
       }
-      nextState.cashBalance = 0
-      memory.lastAction = 'Flex1: Invest Cash'
     }
   }
   nextState.strategyMemory = memory
@@ -156,42 +214,95 @@ export const strategyFlexible1: StrategyFunction = (state, ctx, assets, config) 
 
 export const strategyFlexible2: StrategyFunction = (state, ctx, assets, config) => {
   const memory = { ...(state.strategyMemory as unknown as StrategyMemory) }
+  const isFirstMonth = ctx.monthIndex === 0
+  const currentYear = parseInt(ctx.date.substring(0, 4))
+  const currentMonth = parseInt(ctx.date.substring(5, 7)) - 1
+
+  // Identify index (lowest multiplier) and leveraged (highest multiplier) assets
+  const sorted = [...assets].sort(
+    (a, b) => (ctx.multipliers[a.dataSourceId] || 1) - (ctx.multipliers[b.dataSourceId] || 1),
+  )
+  const indexId = sorted[0]?.dataSourceId
+  const levId = sorted.length > 1 ? sorted[1].dataSourceId : indexId
+
+  if (isFirstMonth || memory.currentYear !== currentYear) {
+    memory.currentYear = currentYear
+    memory.yearInflow = 0
+    if (!isFirstMonth) {
+      memory.startLevVal = (state.shares[levId] || 0) * (ctx.prices[levId] || 0)
+    }
+  }
+
   const nextState = strategyNoRebalance(state, ctx, assets, config)
-  if (parseInt(ctx.date.substring(5, 7)) - 1 === 11) {
-    const { isAdequate, shortfall } = checkCashAdequacy(nextState, config)
-    if (!isAdequate && shortfall > 0) {
-      let totalVal = 0
-      const vals: Record<string, number> = {}
-      for (const a of assets) {
-        const v = (nextState.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0)
-        vals[a.dataSourceId] = v
-        totalVal += v
-      }
-      if (totalVal > 0) {
-        for (const a of assets) {
-          const portion = (vals[a.dataSourceId] || 0) / totalVal
-          const sellAmount = shortfall * portion
-          const price = ctx.prices[a.dataSourceId] || 1
-          const toSell = Math.min(sellAmount / price, nextState.shares[a.dataSourceId] || 0)
+
+  if (isFirstMonth) {
+    memory.startLevVal = (nextState.shares[levId] || 0) * (ctx.prices[levId] || 0)
+  }
+
+  const levSharesDiff = (nextState.shares[levId] || 0) - (state.shares[levId] || 0)
+  if (levSharesDiff > 0 && (ctx.prices[levId] || 0) > 0) {
+    memory.yearInflow = (memory.yearInflow || 0) + levSharesDiff * (ctx.prices[levId] || 0)
+  }
+
+  if (currentMonth === 11) {
+    const { isAdequate } = checkCashAdequacy(nextState, config)
+    const currentLevVal = (nextState.shares[levId] || 0) * (ctx.prices[levId] || 0)
+    const profit = currentLevVal - ((memory.startLevVal || 0) + (memory.yearInflow || 0))
+
+    if (!isAdequate) {
+      // Fallback to defensive (same as Flex 1)
+      if (profit > 0 && ctx.prices[levId] && (ctx.prices[levId] || 0) > 0) {
+        const sellAmount = profit / 3
+        const p = ctx.prices[levId] || 1
+        const toSell = Math.min(sellAmount / p, nextState.shares[levId] || 0)
+        if (toSell > 0.001) {
+          nextState.shares[levId] = (nextState.shares[levId] || 0) - toSell
+          nextState.cashBalance += toSell * p
+          memory.lastAction = `Defensive: Harvest Cash ${sellAmount.toFixed(0)}`
+        }
+      } else if (indexId && levId && indexId !== levId) {
+        const totalVal = nextState.cashBalance + assets.reduce(
+          (s, a) => s + (nextState.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0), 0,
+        )
+        const transferAmount = totalVal * 0.02
+        const indexVal = (nextState.shares[indexId] || 0) * (ctx.prices[indexId] || 0)
+        const actualTransfer = Math.min(transferAmount, indexVal)
+        if (actualTransfer > 0.001) {
+          const ip = ctx.prices[indexId] || 1
+          const lp = ctx.prices[levId] || 1
+          const toSell = Math.min(actualTransfer / ip, nextState.shares[indexId] || 0)
           if (toSell > 0.001) {
-            nextState.shares[a.dataSourceId] = (nextState.shares[a.dataSourceId] || 0) - toSell
-            nextState.cashBalance += toSell * price
+            const proceeds = toSell * ip
+            nextState.shares[indexId] = (nextState.shares[indexId] || 0) - toSell
+            nextState.shares[levId] = (nextState.shares[levId] || 0) + proceeds / lp
+            memory.lastAction = `Defensive: ${indexId}->${levId} ${actualTransfer.toFixed(0)}`
           }
         }
       }
-      memory.lastAction = 'Flex2: Sell to Cash'
-    } else if (isAdequate && nextState.cashBalance > 0) {
-      let bestId = ''
-      let bestVal = -1
-      for (const a of assets) {
-        const v = (nextState.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0)
-        if (v > bestVal) { bestVal = v; bestId = a.dataSourceId }
-      }
-      if (bestId) {
-        const price = ctx.prices[bestId] || 1
-        nextState.shares[bestId] = (nextState.shares[bestId] || 0) + nextState.cashBalance / price
-        nextState.cashBalance = 0
-        memory.lastAction = `Flex2: Aggressive to ${bestId}`
+    } else {
+      // Aggressive mode
+      if (profit > 0 && indexId && ctx.prices[indexId] && (ctx.prices[indexId] || 0) > 0 && ctx.prices[levId] && (ctx.prices[levId] || 0) > 0) {
+        const sellAmount = profit / 3
+        const lp = ctx.prices[levId] || 1
+        const ip = ctx.prices[indexId] || 1
+        const toSell = Math.min(sellAmount / lp, nextState.shares[levId] || 0)
+        if (toSell > 0.001) {
+          const proceeds = toSell * lp
+          nextState.shares[levId] = (nextState.shares[levId] || 0) - toSell
+          nextState.shares[indexId] = (nextState.shares[indexId] || 0) + proceeds / ip
+          memory.lastAction = `Aggressive: Profit to ${indexId} ${sellAmount.toFixed(0)}`
+        }
+      } else if (levId && (ctx.prices[levId] || 0) > 0) {
+        const totalVal = nextState.cashBalance + assets.reduce(
+          (s, a) => s + (nextState.shares[a.dataSourceId] || 0) * (ctx.prices[a.dataSourceId] || 0), 0,
+        )
+        const buyAmount = Math.min(totalVal * 0.02, nextState.cashBalance)
+        if (buyAmount > 0.001) {
+          const lp = ctx.prices[levId] || 1
+          nextState.shares[levId] = (nextState.shares[levId] || 0) + buyAmount / lp
+          nextState.cashBalance -= buyAmount
+          memory.lastAction = `Aggressive: Buy Dip ${buyAmount.toFixed(0)}`
+        }
       }
     }
   }

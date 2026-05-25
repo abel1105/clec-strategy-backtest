@@ -727,6 +727,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               <span>{t('cash')}</span>
               <span className="font-bold">{Math.max(0, 100 - profile.assets.reduce((s, a) => s + a.targetWeight, 0))}%</span>
             </div>
+            {profile.assets.reduce((s, a) => s + a.targetWeight, 0) > 100 && (
+              <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                <AlertOctagon className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                <p className="text-[11px] text-red-700">{t('targetWeightOver100')}</p>
+              </div>
+            )}
           </div>
 
           {/* Stock Pledge / Leverage */}
@@ -748,6 +754,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 
             {profile.config.leverage?.enabled && (
               <div className="space-y-4 animate-in slide-in-from-top-2 duration-200">
+                {profile.assets.every((a) => a.pledgeRatio === 0) && (profile.config.leverage.cashPledgeRatio ?? 0.95) === 0 && (
+                  <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                    <AlertOctagon className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-red-700">{t('zeroPledgeWarning')}</p>
+                  </div>
+                )}
                 {/* Row 1: Interest Rate & Max LTV */}
                 <div className="grid grid-cols-1 gap-3">
                   <div>
@@ -974,7 +986,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             <div>
               <span className="font-medium text-sm">{ds.name}</span>
               <span className="text-xs text-gray-500 ml-2">{ds.multiplier}x</span>
-              <span className="text-xs text-gray-400 ml-2">{ds.data.length} months</span>
+              <span className="text-xs text-gray-400 ml-2">{ds.data[0]?.date} → {ds.data[ds.data.length - 1]?.date}</span>
             </div>
             <button
               onClick={() => onDeleteSource(ds.id)}
@@ -1031,14 +1043,27 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
           <div
             key={profile.id}
             data-testid="profile-card"
-            onClick={() => setEditingProfileId(profile.id)}
-            className="group relative rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer bg-white overflow-hidden"
+            onClick={() => { if (profile.enabled !== false) setEditingProfileId(profile.id) }}
+            className={`group relative rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer bg-white overflow-hidden ${profile.enabled === false ? 'opacity-50' : ''}`}
             style={{ borderLeft: `4px solid ${profile.color}` }}
           >
             {/* Header: Name and Management Actions */}
             <div className="flex justify-between items-center px-4 pt-3 mb-1">
               <div className="flex items-center gap-2 overflow-hidden">
-                <span className="font-bold text-slate-800 text-sm truncate">{profile.name}</span>
+                <label className="relative inline-flex items-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={profile.enabled !== false}
+                    onChange={(e) => {
+                      onProfilesChange((prev: Profile[]) =>
+                        prev.map((p) => p.id === profile.id ? { ...p, enabled: e.target.checked } : p),
+                      )
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-7 h-4 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
+                </label>
+                <span className={`font-bold text-sm truncate ${profile.enabled === false ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{profile.name}</span>
               </div>
               <div className="flex gap-0.5">
                 <button
@@ -1095,7 +1120,7 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
               }`}
             >
               <div className="flex gap-1">
-                {hasResults && (
+                {hasResults && profile.enabled !== false && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation()

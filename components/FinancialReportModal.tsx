@@ -6,6 +6,7 @@ import { X, FileText, PieChart } from 'lucide-react'
 interface FinancialReportModalProps {
   result: SimulationResult
   marketData: Record<string, AssetDataRow[]> | null
+  dataSources: { id: string; name: string }[]
   onClose: () => void
 }
 
@@ -17,6 +18,7 @@ const fmtDec = (num: number) =>
 export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
   result,
   marketData,
+  dataSources,
   onClose,
 }) => {
   const { t } = useTranslation()
@@ -32,6 +34,16 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
     if (!marketData || !marketData[assetId]) return 0
     const row = marketData[assetId].find((m) => m.date === state.date)
     return shares * (row?.close || 0)
+  }
+
+  const sourceNameMap = new Map(dataSources.map((ds) => [ds.id, ds.name]))
+
+  const replaceIds = (text: string): string => {
+    let result = text
+    for (const [id, name] of sourceNameMap) {
+      result = result.split(id).join(name)
+    }
+    return result
   }
 
   return (
@@ -104,8 +116,8 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
                         <div className="space-y-2 text-sm">
                           {assetValues.map((av) => (
                             <div key={av.id} className="flex justify-between">
-                              <span className="text-slate-600">
-                                {av.id} ({(state.shares[av.id] || 0).toFixed(1)} {t('shares')})
+                               <span className="text-slate-600">
+                                 {sourceNameMap.get(av.id) || av.id} ({(state.shares[av.id] || 0).toFixed(1)} {t('shares')})
                               </span>
                               <span className="font-mono font-medium">{fmt(av.value)}</span>
                             </div>
@@ -215,7 +227,7 @@ export const FinancialReportModal: React.FC<FinancialReportModalProps> = ({
                                 )}
 
                                 <span className="text-slate-700">
-                                  {evt.description}
+                                  {replaceIds(evt.description)}
                                   {evt.amount !== undefined && Math.abs(evt.amount) > 0.01 && (
                                     <span
                                       className={`font-mono ml-1 font-bold ${evt.amount > 0 ? 'text-green-600' : 'text-red-500'}`}

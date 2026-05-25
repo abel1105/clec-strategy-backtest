@@ -49,6 +49,7 @@ export interface Profile {
   strategyType: StrategyType
   assets: AssetEntry[]
   config: ProfileConfig
+  enabled?: boolean
 }
 
 export interface FinancialEvent {

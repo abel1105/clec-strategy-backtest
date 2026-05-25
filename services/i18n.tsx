@@ -69,6 +69,9 @@ const dictionaries: Record<Language, Translations> = {
     inflationRate: 'Inflation Rate %',
     leverageWarning:
       '*Collateral = Sum(Asset * Ratio). Liquidation if Debt > Max LTV of this Collateral.',
+    zeroPledgeWarning:
+      '⚠ All assets have 0% pledge ratio — no collateral to borrow against. Set pledge ratio > 0 to enable leverage.',
+    targetWeightOver100: '⚠ Total target weight exceeds 100%. Reduce some asset weights.',
     config_expenseAmount: 'Annual Expense Amount ($)',
     spending_buffer: 'Living Expenses & Buffer',
     config_coverageYears: 'Cash Coverage (Years)',
@@ -177,7 +180,7 @@ const dictionaries: Record<Language, Translations> = {
     pledgeRatio: 'Pledge Ratio',
     dataRange: 'Data Range',
     appDesc:
-      'Simulates various QQQ (Nasdaq 100) and QLD (2x Leverage) strategies. Create multiple profiles to compare different allocations and patrimony strategies.',
+      'Simulates various investment strategies with configurable data sources. Create multiple profiles to compare different allocations and cash management logic.',
     exportData: 'Export All',
     importData: 'Import All',
     downloadReport: 'Download Professional Report',
@@ -192,7 +195,7 @@ const dictionaries: Record<Language, Translations> = {
     resetZoom: 'Reset Zoom',
     selectionMode: 'Selection Mode',
     selectionModeActive: 'Precision Zoom Active',
-    showBenchmark: 'Show Benchmarks (QQQ & QLD)',
+    showBenchmark: 'Show Benchmarks',
     calculating: 'Calculating...',
     calculationDesc: 'Running simulation for 400+ combinations',
     largeSetWarning: 'Displaying Top 10 + Bottom 5 strategies for optimal performance.',
@@ -278,6 +281,9 @@ const dictionaries: Record<Language, Translations> = {
     inflationRate: "Taux d'inflation %",
     leverageWarning:
       '*Collatéral = Somme(Actif * Ratio). Faillite si Dette > LTV Max du Collatéral.',
+    zeroPledgeWarning:
+      '⚠ Tous les actifs ont un ratio de nantissement de 0% — aucun collatéral pour emprunter. Définissez un ratio > 0 pour activer le levier.',
+    targetWeightOver100: '⚠ Le poids cible total dépasse 100%. Réduisez certains poids d\'actifs.',
     config_expenseAmount: 'Montant des dépenses annuelles ($)',
     spending_buffer: 'Dépenses et réserve',
     config_coverageYears: 'Couverture Cash (Années)',
@@ -385,7 +391,7 @@ const dictionaries: Record<Language, Translations> = {
     done: 'Terminé',
     dataRange: 'Plage de données',
     appDesc:
-      'Simule diverses stratégies QQQ (Nasdaq 100) et QLD (Levier 2x). Créez plusieurs profils pour comparer différentes allocations.',
+      'Simule diverses stratégies d\'investissement avec des sources de données configurables. Créez plusieurs profils pour comparer différentes allocations.',
     exportData: 'Exporter tout',
     importData: 'Importer tout',
     downloadReport: 'Télécharger le rapport professionnel',
@@ -401,7 +407,7 @@ const dictionaries: Record<Language, Translations> = {
     resetZoom: 'Réinitialiser le zoom',
     selectionMode: 'Mode Sélection',
     selectionModeActive: 'Zoom de Précision Actif',
-    showBenchmark: 'Afficher les benchmarks (QQQ & QLD)',
+    showBenchmark: 'Afficher les benchmarks',
     calculating: 'Calcul en cours...',
     calculationDesc: 'Simulation de plus de 400 combinaisons',
     largeSetWarning:
@@ -488,6 +494,9 @@ const dictionaries: Record<Language, Translations> = {
     inflationRate: '通货膨胀率 %',
     leverageWarning:
       '*有效抵押品 = (QQQ*比率 + QLD*比率 + 现金*比率)。若负债 > 有效抵押品的 Max LTV，将面临清算。',
+    zeroPledgeWarning:
+      '⚠ 所有资产的抵押率均为 0% — 没有可抵押资产来借款。请设置抵押率 > 0 以启用杠杆。',
+    targetWeightOver100: '⚠ 目标权重总和超过 100%。请减少部分资产权重。',
     config_expenseAmount: '年生活花销 ($)',
     spending_buffer: '生活支出与现金储备',
     config_coverageYears: '现金储备年限 (年)',
@@ -590,7 +599,7 @@ const dictionaries: Record<Language, Translations> = {
     done: '完成',
     dataRange: '数据范围',
     appDesc:
-      '模拟 QQQ (纳斯达克100) 和 QLD (2倍杠杆) 的多种投资策略。创建多个方案以对比不同的资产配置和现金管理逻辑。',
+      '模拟多种投资策略，支持可配置的数据源。创建多个方案以对比不同的资产配置和现金管理逻辑。',
     exportData: '导出配置',
     importData: '导入配置',
     downloadReport: '下载专业报告 (PDF)',
@@ -605,7 +614,7 @@ const dictionaries: Record<Language, Translations> = {
     resetZoom: '重置缩放',
     selectionMode: '框选模式',
     selectionModeActive: '精准缩放已开启',
-    showBenchmark: '显示基准线 (QQQ & QLD)',
+    showBenchmark: '显示基准线',
     calculating: '正在计算中...',
     calculationDesc: '正在为 400 多个组合运行回测模拟',
     largeSetWarning: '为保证性能，图表仅展示排名靠前的 10 个及回撤最大的 5 个方案。',
@@ -631,7 +640,7 @@ const dictionaries: Record<Language, Translations> = {
     monitorDisclaimer: '实验性存量资金风险敞口及增量资金信号。非实时交易信号，不构成投资建议。',
   },
   'zh-TW': {
-    appTitle: 'QQQ 回測工具',
+    appTitle: '投資工具',
     profiles: '配置方案',
     addProfile: '新增方案',
     autoGenerate: '自動生成組合',
@@ -689,6 +698,9 @@ const dictionaries: Record<Language, Translations> = {
     inflationRate: '通貨膨脹率 %',
     leverageWarning:
       '*有效抵押品 = (QQQ*比率 + QLD*比率 + 現金*比率)。若負債 > 有效抵押品的 Max LTV，將面臨清算。',
+    zeroPledgeWarning:
+      '⚠ 所有資產的抵押率均為 0% — 沒有可抵押資產來借款。請設定抵押率 > 0 以啟用槓桿。',
+    targetWeightOver100: '⚠ 目標權重總和超過 100%。請減少部分資產權重。',
     config_expenseAmount: '年生活花銷 ($)',
     spending_buffer: '生活支出與現金儲備',
     config_coverageYears: '現金儲備年限 (年)',
@@ -791,7 +803,7 @@ const dictionaries: Record<Language, Translations> = {
     done: '完成',
     dataRange: '數據範圍',
     appDesc:
-      '模擬 QQQ (納斯達克100) 和 QLD (2倍槓桿) 的多種投資策略。創建多個方案以對比不同的資產配置和現金管理邏輯。',
+      '模擬多種投資策略，支援可設定的數據來源。創建多個方案以對比不同的資產配置和現金管理邏輯。',
     exportData: '匯出配置',
     importData: '匯入配置',
     downloadReport: '下載專業報告 (PDF)',
@@ -806,7 +818,7 @@ const dictionaries: Record<Language, Translations> = {
     resetZoom: '重置縮放',
     selectionMode: '框選模式',
     selectionModeActive: '精準縮放已開啟',
-    showBenchmark: '顯示基準線 (QQQ & QLD)',
+    showBenchmark: '顯示基準線',
     calculating: '正在計算中...',
     calculationDesc: '正在為 400 多個組合運行回測模擬',
     largeSetWarning: '為保證性能，圖表僅展示排名靠前的 10 個及回撤最大的 5 個方案。',

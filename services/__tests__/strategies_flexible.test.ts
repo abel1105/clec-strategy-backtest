@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { strategyFlexible1, strategyFlexible2 } from '../strategies'
-import { PortfolioState, MonthlyContext, AssetEntry, ProfileConfig } from '../../types'
+import { strategyFlexible2 } from '../strategies'
+import { PortfolioState, AssetEntry, ProfileConfig } from '../../types'
 
 const testAssets: AssetEntry[] = [
   { dataSourceId: 'A', targetWeight: 60, contributionWeight: 50, pledgeRatio: 0.7 },
@@ -28,11 +28,22 @@ const baseConfig: ProfileConfig = {
   },
 }
 
-const ctx = (date: string, prices: Record<string, number>, monthIndex: number): MonthlyContext => ({
+const ctx = (
+  date: string,
+  prices: Record<string, number>,
+  monthIndex: number,
+  multipliers?: Record<string, number>,
+): {
+  date: string
+  prices: Record<string, number>
+  lows: Record<string, number>
+  multipliers: Record<string, number>
+  monthIndex: number
+} => ({
   date,
   prices,
   lows: Object.fromEntries(Object.keys(prices).map((k) => [k, prices[k]])),
-  multipliers: Object.fromEntries(Object.keys(prices).map((k) => [k, 1])),
+  multipliers: multipliers ?? Object.fromEntries(Object.keys(prices).map((k) => [k, 1])),
   monthIndex,
 })
 
@@ -49,61 +60,125 @@ const empty = (): PortfolioState => ({
   events: [],
 })
 
-describe('Strategy Flexible 1 (Defensive)', () => {
-  it('sells proportionally when cash inadequate', () => {
-    // Cash target = 2000 * 15 = 30000
-    // Cash = 5000 < 30000 -> inadequate
-    const state = { ...empty(), shares: { A: 500, B: 500 }, cashBalance: 5000 }
-    const result = strategyFlexible1(state, ctx('2020-12-01', { A: 100, B: 100 }, 11), testAssets, baseConfig)
+describe('Strategy Flexible 2 (Aggressive) — FLEXIBLE_2 regression', () => {
+  it('cross-rebalances index→leveraged in bear market when cash inadequate', () => {
+    // FLEXIBLE_2 during dot-com crash: QLD profit negative, cash below target
+    // Assets: QQ (1x, index) and LL (2x, leveraged) — sorted by multiplier
+    const bearAssets: AssetEntry[] = [
+      { dataSourceId: 'QQ', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.6 },
+      { dataSourceId: 'LL', targetWeight: 30, contributionWeight: 0, pledgeRatio: 0.6 },
+    ]
+    const bearConfig: ProfileConfig = {
+      ...baseConfig,
+      annualExpenseAmount: 25000, // target cash = 25000*15 = 375000
+    }
 
-    // shortfall = 30000 - 5000 = 25000
-    // vals: A=50000, B=50000, total=100000
-    // A portion = 0.5, sell = 12500, shares = min(12500/100, 500) = 125
-    // A: 500 - 125 = 375, cash: 5000 + 12500 = 17500
-    // B: 500 - 125 = 375, cash: 17500 + 12500 = 30000
-    expect(result.shares['A']).toBe(375)
-    expect(result.shares['B']).toBe(375)
-    expect(result.cashBalance).toBe(30000)
-    expect(result.strategyMemory.lastAction).toBe('Flex1: Sell to Cash')
+    // Dec 2000 state after dot-com crash
+    const qqPrice = 58.38
+    const llPrice = 5.09
+    const qqShares = 3652.97
+    const llShares = 16759.78
+    const cashBal = 307841 // below 375k target
+
+    const state = {
+      ...empty(),
+      shares: { QQ: qqShares, LL: llShares },
+      cashBalance: cashBal,
+      // startLevVal = high (set in Jan 2000), current LL value is much lower => negative profit (bear)
+      strategyMemory: { startLevVal: 300000, yearInflow: 0, currentYear: 2000 },
+    }
+
+    const result = strategyFlexible2(
+      state,
+      ctx('2000-12-01', { QQ: qqPrice, LL: llPrice }, 9, { QQ: 1, LL: 2 }),
+      bearAssets,
+      bearConfig,
+    )
+
+    // 2% of total portfolio = 0.02 * (307841 + 3652.97*58.38 + 16759.78*5.09)
+    const totalVal = cashBal + qqShares * qqPrice + llShares * llPrice
+    const expectedTransfer = totalVal * 0.02
+
+    // QQ sold, LL bought, cash roughly unchanged
+    expect(result.shares['QQ']).toBeLessThan(qqShares)
+    expect(result.shares['LL']).toBeGreaterThan(llShares)
+    expect(result.shares['QQ']).toBeCloseTo(qqShares - expectedTransfer / qqPrice, 0)
+    expect(result.shares['LL']).toBeCloseTo(llShares + expectedTransfer / llPrice, 0)
+    expect(result.cashBalance).toBeCloseTo(cashBal, -2)
+    expect(result.strategyMemory.lastAction).toMatch(/Defensive: QQ->LL/)
   })
 
-  it('invests proportionally when cash adequate', () => {
-    // Cash = 50000 >= 30000 -> adequate
-    const state = { ...empty(), shares: { A: 0, B: 0 }, cashBalance: 50000 }
-    const result = strategyFlexible1(state, ctx('2020-12-01', { A: 100, B: 100 }, 11), testAssets, baseConfig)
+  it('harvests leveraged profit to cash when cash inadequate and profit positive', () => {
+    // When cash is below target but leveraged asset has positive profit:
+    // sell 1/3 of profit from leveraged -> cash
+    const state = {
+      ...empty(),
+      shares: { A: 500, B: 500 },
+      cashBalance: 5000, // below target 30000
+      strategyMemory: { startLevVal: 25000, yearInflow: 0, currentYear: 2020 },
+    }
+    // B is leveraged (same multiplier, comes second in sort)
+    // B value = 500*100 = 50000, profit = 50000 - 25000 = 25000
+    // Sell 1/3 = 8333 -> shares: 500 - 83.33 = 416.67
+    const result = strategyFlexible2(
+      state,
+      ctx('2020-12-01', { A: 100, B: 100 }, 11),
+      testAssets,
+      baseConfig,
+    )
 
-    // totalW = 60 + 40 = 100
-    // A invest = 50000 * 60/100 = 30000 -> 300 shares
-    // B invest = 50000 * 40/100 = 20000 -> 200 shares
-    expect(result.shares['A']).toBe(300)
-    expect(result.shares['B']).toBe(200)
-    expect(result.cashBalance).toBe(0)
-    expect(result.strategyMemory.lastAction).toBe('Flex1: Invest Cash')
-  })
-})
-
-describe('Strategy Flexible 2 (Aggressive)', () => {
-  it('sells proportionally when cash inadequate', () => {
-    const state = { ...empty(), shares: { A: 500, B: 500 }, cashBalance: 5000 }
-    const result = strategyFlexible2(state, ctx('2020-12-01', { A: 100, B: 100 }, 11), testAssets, baseConfig)
-
-    expect(result.shares['A']).toBe(375)
-    expect(result.shares['B']).toBe(375)
-    expect(result.cashBalance).toBe(30000)
-    expect(result.strategyMemory.lastAction).toBe('Flex2: Sell to Cash')
+    expect(result.shares['B']).toBeCloseTo(500 - 25000 / 3 / 100, 0)
+    expect(result.cashBalance).toBeGreaterThan(5000)
+    expect(result.strategyMemory.lastAction).toMatch(/Harvest Cash/)
   })
 
-  it('invests aggressively when cash adequate', () => {
-    // Cash = 50000 >= 30000 -> adequate
-    // Both assets have equal value, A comes first so it's the "best"
-    const state = { ...empty(), shares: { A: 50, B: 50 }, cashBalance: 50000 }
-    const result = strategyFlexible2(state, ctx('2020-12-01', { A: 100, B: 100 }, 11), testAssets, baseConfig)
+  it('aggressively buys index with leveraged profit when cash adequate', () => {
+    // When cash adequate and profit positive:
+    // sell 1/3 of leveraged profit -> buy index
+    const state = {
+      ...empty(),
+      shares: { A: 400, B: 600 },
+      cashBalance: 50000, // above target 30000
+      strategyMemory: { startLevVal: 40000, yearInflow: 0, currentYear: 2020 },
+    }
+    // profit = B(600*100=60000) - 40000 = 20000
+    // sell 1/3 = 6666 from B -> buy A
+    // B: 600 - 66.66 = 533.33
+    // A: 400 + 6666/100 = 466.66
+    const result = strategyFlexible2(
+      state,
+      ctx('2020-12-01', { A: 100, B: 100 }, 11),
+      testAssets,
+      baseConfig,
+    )
 
-    // bestId = A (first with equal value since > not >=)
-    // A: 50 + 50000/100 = 550
-    expect(result.shares['A']).toBe(550)
-    expect(result.shares['B']).toBe(50)
-    expect(result.cashBalance).toBe(0)
-    expect(result.strategyMemory.lastAction).toBe('Flex2: Aggressive to A')
+    expect(result.shares['B']).toBeLessThan(600)
+    expect(result.shares['A']).toBeGreaterThan(400)
+    expect(result.cashBalance).toBeCloseTo(50000) // unchanged (sell= buy)
+    expect(result.strategyMemory.lastAction).toMatch(/Aggressive: Profit to/)
+  })
+
+  it('buys dip with cash when cash adequate and profit negative', () => {
+    // When cash adequate and profit negative:
+    // buy 2% of total portfolio of leveraged with cash
+    const state = {
+      ...empty(),
+      shares: { A: 500, B: 500 },
+      cashBalance: 50000, // above target 30000
+      strategyMemory: { startLevVal: 80000, yearInflow: 0, currentYear: 2020 },
+    }
+    // profit = B(500*100=50000) - 80000 = -30000 (negative = dip)
+    // totalVal = 50000 + 50000 + 50000 = 150000
+    // 2% = 3000, buy B: 3000/100 = 30 shares
+    const result = strategyFlexible2(
+      state,
+      ctx('2020-12-01', { A: 100, B: 100 }, 11),
+      testAssets,
+      baseConfig,
+    )
+
+    expect(result.shares['B']).toBe(530)
+    expect(result.cashBalance).toBeCloseTo(50000 - 3000, -2)
+    expect(result.strategyMemory.lastAction).toMatch(/Buy Dip/)
   })
 })

@@ -24,6 +24,7 @@ const CREATE_DEFAULT_PROFILES = (): Profile[] => [
   {
     id: '1', name: 'Conservative', color: '#2563eb',
     strategyType: 'NO_REBALANCE' as StrategyType,
+    enabled: true,
     assets: [
       { dataSourceId: 'builtin-qqq', targetWeight: 50, contributionWeight: 100, pledgeRatio: 0.7 },
       { dataSourceId: 'builtin-qld', targetWeight: 40, contributionWeight: 0, pledgeRatio: 0.0 },
@@ -33,6 +34,7 @@ const CREATE_DEFAULT_PROFILES = (): Profile[] => [
   {
     id: '2', name: 'Aggressive', color: '#ea580c',
     strategyType: 'SMART' as StrategyType,
+    enabled: true,
     assets: [
       { dataSourceId: 'builtin-qqq', targetWeight: 10, contributionWeight: 10, pledgeRatio: 0.7 },
       { dataSourceId: 'builtin-qld', targetWeight: 80, contributionWeight: 80, pledgeRatio: 0.0 },
@@ -47,6 +49,7 @@ const migrateProfile = (p: any): Profile => {
   return {
     id: p.id, name: p.name, color: p.color || '#000000',
     strategyType: p.strategyType || 'NO_REBALANCE',
+    enabled: p.enabled !== false,
     assets: [
       { dataSourceId: p.dataSourceId || 'builtin-qqq', targetWeight: c.indexWeight ?? 50, contributionWeight: c.contributionIndexWeight ?? 50, pledgeRatio: c.leverage?.indexPledgeRatio ?? 0.7 },
       { dataSourceId: p.dataSourceId ? `custom-${p.dataSourceId}-2` : 'builtin-qld', targetWeight: c.leveragedWeight ?? 40, contributionWeight: c.contributionLeveragedWeight ?? 40, pledgeRatio: c.leverage?.leveragedPledgeRatio ?? 0 },
@@ -79,8 +82,11 @@ const MainApp = () => {
   const [dataSources, setDataSources] = useState<DataSource[]>(() => {
     const saved = localStorage.getItem('app_data_sources')
     if (saved) {
-      try { return JSON.parse(saved) }
-      catch { /* ignore */ }
+      try {
+        const parsed = JSON.parse(saved) as DataSource[]
+        const builtinIds = new Set(BUILT_IN_DATA_SOURCES.map((s) => s.id))
+        return [...BUILT_IN_DATA_SOURCES, ...parsed.filter((s) => !builtinIds.has(s.id))]
+      } catch { /* ignore */ }
     }
     const legacy = localStorage.getItem('app_saved_sources')
     if (legacy) {
@@ -171,6 +177,7 @@ const MainApp = () => {
       const newResults: SimulationResult[] = []
 
       for (const profile of profiles) {
+        if (profile.enabled === false) continue
         const input = buildSimulationInput(profile)
         if (!input) continue
         const strategyFunc = getStrategyByType(profile.strategyType)
@@ -210,10 +217,18 @@ const MainApp = () => {
 
   const handleViewDetails = (profileId: string) => {
     if (!isCalculated) return
-    const index = profiles.findIndex((p) => p.id === profileId)
-    if (index >= 0 && results[index]) {
-      setReportResult(results[index])
-      setReportMarketData(buildSimulationInput(profiles[index])?.assetData ?? null)
+    // results array only contains enabled profiles; count enabled profiles
+    // up to (and including) the target to find the correct result index
+    let resultIdx = 0
+    for (const p of profiles) {
+      if (p.id === profileId) {
+        if (results[resultIdx]) {
+          setReportResult(results[resultIdx])
+          setReportMarketData(buildSimulationInput(p)?.assetData ?? null)
+        }
+        break
+      }
+      if (p.enabled !== false) resultIdx++
     }
   }
 
@@ -233,6 +248,7 @@ const MainApp = () => {
         <FinancialReportModal
           result={reportResult}
           marketData={reportMarketData}
+          dataSources={dataSources}
           onClose={() => setReportResult(null)}
         />
       )}
@@ -384,7 +400,7 @@ const MainApp = () => {
               onShowBenchmarkChange={setShowBenchmarks}
               dataSources={dataSources}
               onSaveSource={(ds: DataSource) => setDataSources((prev) => [...prev, ds])}
-              onDeleteSource={(id: string) => setDataSources((prev) => prev.filter((s) => s.id !== id))}
+              onDeleteSource={(id: string) => setDataSources((prev) => prev.filter((s) => s.id !== id || s.id.startsWith('builtin-')))}
               onImportData={({ profiles: importedProfiles, dataSources: importedSources }) => {
                 setProfiles((prev) => {
                   const existing = new Map(prev.map((p) => [p.id, p]))

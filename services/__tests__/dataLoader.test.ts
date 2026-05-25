@@ -53,14 +53,18 @@ describe('monthlyPointsToAssetData', () => {
 
 describe('BUILT_IN_DATA_SOURCES', () => {
   it('should export QQQ and QLD with correct multipliers', () => {
-    expect(BUILT_IN_DATA_SOURCES).toHaveLength(2)
+    expect(BUILT_IN_DATA_SOURCES).toHaveLength(8)
     const qqq = BUILT_IN_DATA_SOURCES.find((s) => s.id === 'builtin-qqq')
     const qld = BUILT_IN_DATA_SOURCES.find((s) => s.id === 'builtin-qld')
+    const source631l = BUILT_IN_DATA_SOURCES.find((s) => s.id === 'builtin-00631l')
     expect(qqq?.name).toBe('QQQ')
     expect(qqq?.multiplier).toBe(1)
     expect(qld?.name).toBe('QLD')
     expect(qld?.multiplier).toBe(2)
+    expect(source631l?.name).toBe('00631L')
+    expect(source631l?.multiplier).toBe(2)
     expect(qqq?.data.length).toBeGreaterThan(100)
     expect(qld?.data.length).toBeGreaterThan(100)
+    expect(source631l?.data.length).toBeGreaterThan(100)
   })
 })
